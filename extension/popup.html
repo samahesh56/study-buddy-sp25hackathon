@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>StudyClaw</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 12px;
+        min-width: 320px;
+      }
+      label, input, button, pre {
+        display: block;
+        width: 100%;
+      }
+      input, button {
+        margin-top: 6px;
+        margin-bottom: 10px;
+        padding: 8px;
+        box-sizing: border-box;
+      }
+      pre {
+        white-space: pre-wrap;
+        background: #f4f4f4;
+        padding: 8px;
+        border-radius: 6px;
+        max-height: 240px;
+        overflow: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <label for="backend-url">Backend URL</label>
+    <input id="backend-url" type="text" />
+
+    <label for="user-id">User ID</label>
+    <input id="user-id" type="text" placeholder="ryan" />
+
+    <button id="save-config">Save Backend URL</button>
+    <button id="sync-session">Sync Session</button>
+    <button id="start-session">Start Session</button>
+    <button id="stop-session">Stop Session</button>
+    <button id="flush-queue">Flush Queue</button>
+
+    <pre id="status">Loading...</pre>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
