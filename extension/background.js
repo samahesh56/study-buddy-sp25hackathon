@@ -6,6 +6,7 @@ import {
   closeInterval,
   createInterval,
   nowIso,
+  segmentClosedInterval,
   splitIntervalForRollover,
   shouldRollover
 } from "./core.js";
@@ -153,7 +154,10 @@ async function closeCurrentInterval(reason, options = {}) {
   }
 
   const closed = closeInterval(current, reason, nowIso(), Boolean(options.isPartialSegment));
-  await appendToQueue(closed);
+  const segments = segmentClosedInterval(closed, MAX_SEGMENT_MS);
+  for (const segment of segments) {
+    await appendToQueue(segment);
+  }
   await setCurrentInterval(null);
   return closed;
 }

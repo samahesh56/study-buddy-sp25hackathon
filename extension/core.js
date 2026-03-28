@@ -131,6 +131,25 @@ export function splitIntervalForRollover(interval, rolloverAtIso) {
   return { closedSegment, remainingInterval };
 }
 
+export function segmentClosedInterval(interval, maxSegmentMs = MAX_SEGMENT_MS) {
+  const segments = [];
+  let workingInterval = { ...interval };
+
+  while (workingInterval.duration_ms > maxSegmentMs) {
+    const rolloverAtIso = addMsToIso(workingInterval.interval_start, maxSegmentMs);
+    const { closedSegment, remainingInterval } = splitIntervalForRollover(workingInterval, rolloverAtIso);
+    segments.push(closedSegment);
+    workingInterval = {
+      ...remainingInterval,
+      transition_out_reason: interval.transition_out_reason,
+      is_partial_segment: interval.is_partial_segment
+    };
+  }
+
+  segments.push(workingInterval);
+  return segments;
+}
+
 export function buildBatch({ sessionId, userId, sequenceNumber, events, sentAt }) {
   return {
     batch_id: newId("batch"),

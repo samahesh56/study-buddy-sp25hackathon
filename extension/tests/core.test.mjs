@@ -5,6 +5,7 @@ import {
   closeInterval,
   createInterval,
   deriveDomain,
+  segmentClosedInterval,
   shouldRollover,
   splitIntervalForRollover
 } from "../core.js";
@@ -49,6 +50,22 @@ function run() {
   assert.equal(closedSegment.scroll_count + remainingInterval.scroll_count, 12);
   assert.equal(closedSegment.click_count + remainingInterval.click_count, 4);
   assert.equal(closedSegment.keystroke_count + remainingInterval.keystroke_count, 10);
+
+  const overshotOnTabSwitch = closeInterval(interval, "tab_deactivated", "2026-03-28T20:01:07.000Z");
+  overshotOnTabSwitch.scroll_count = 21;
+  overshotOnTabSwitch.click_count = 5;
+  overshotOnTabSwitch.keystroke_count = 9;
+  const segmented = segmentClosedInterval(overshotOnTabSwitch, 30000);
+  assert.equal(segmented.length, 3);
+  assert.equal(segmented[0].duration_ms, 30000);
+  assert.equal(segmented[0].transition_out_reason, "segment_rollover");
+  assert.equal(segmented[1].duration_ms, 30000);
+  assert.equal(segmented[1].transition_out_reason, "segment_rollover");
+  assert.equal(segmented[2].duration_ms, 7000);
+  assert.equal(segmented[2].transition_out_reason, "tab_deactivated");
+  assert.equal(segmented.reduce((sum, item) => sum + item.scroll_count, 0), 21);
+  assert.equal(segmented.reduce((sum, item) => sum + item.click_count, 0), 5);
+  assert.equal(segmented.reduce((sum, item) => sum + item.keystroke_count, 0), 9);
 
   console.log("extension core tests passed");
 }

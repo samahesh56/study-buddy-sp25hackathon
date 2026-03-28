@@ -36,7 +36,7 @@ The current system has two runtime pieces.
 - collects raw interaction counts
 - closes intervals on context changes
 - rolls long intervals every 30 seconds
-- corrects delayed rollovers into exact stored segments
+- enforces exact 30-second segmentation on all close paths
 - queues closed intervals locally
 - uploads telemetry batches to the backend
 
@@ -164,7 +164,8 @@ The extension keeps queued intervals locally until the backend acknowledges them
 Important implementation detail:
 
 - Chrome MV3 alarms are coarse, so the service worker may wake up after the 30-second boundary
-- the extension corrects that by splitting overshot intervals into an exact 30-second stored segment plus a carried-forward remainder
+- the extension corrects that by splitting overshot intervals into exact 30-second stored segments plus a carried-forward remainder
+- that split now happens both on periodic rollover checks and on all other close reasons such as tab switch, blur, and session stop
 - this keeps stored raw interval durations aligned with the intended segmentation rule
 
 Additional reliability behavior:
