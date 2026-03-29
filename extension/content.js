@@ -50,7 +50,7 @@ async function fetchCanvasCourses() {
     throw new Error("Canvas import must run from a Canvas tab.");
   }
 
-  const response = await fetch("/api/v1/courses?per_page=100&enrollment_state=active&state[]=available&include[]=term", {
+  const response = await fetch("/api/v1/users/self/favorites/courses?per_page=100&include[]=term", {
     method: "GET",
     credentials: "include",
     headers: {
