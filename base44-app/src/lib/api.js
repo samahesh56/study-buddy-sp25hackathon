@@ -1,5 +1,11 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 
+export function resolveApiUrl(path) {
+    if (!path) return null;
+    if (/^https?:\/\//i.test(path)) return path;
+    return `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
 async function request(path, options = {}) {
     const response = await fetch(`${API_BASE}${path}`, {
         headers: {
@@ -30,12 +36,14 @@ function normalizeSession(session) {
 function buildSummaryFallback(session, summary) {
     const totalDurationMinutes = Math.round((summary.total_duration_ms || 0) / 60000);
     return {
+        ...summary,
         session_id: session?.session_id,
         planned_duration_minutes: session?.planned_duration_minutes ?? 0,
-        actual_duration_minutes: totalDurationMinutes,
+        actual_duration_minutes: summary.actual_duration_minutes ?? totalDurationMinutes,
         focus_score: summary.focus_score ?? null,
         on_task_ratio: summary.on_task_ratio ?? 0,
         off_task_ratio: summary.off_task_ratio ?? 0,
+        away_ratio: summary.away_ratio ?? 0,
         unknown_ratio: summary.unknown_ratio ?? 1,
         active_on_task_minutes: summary.active_on_task_minutes ?? 0,
         passive_on_task_minutes: summary.passive_on_task_minutes ?? 0,
@@ -54,13 +62,21 @@ function buildSummaryFallback(session, summary) {
         top_relevant_domains: [],
         top_distraction_domains: [],
         timeline_highlights: [],
-        system_observations: [
+        graph_image_url: resolveApiUrl(summary.graph_image_url || summary.graph_png_url || summary.graph_image_src),
+        graph_png_url: resolveApiUrl(summary.graph_png_url || summary.graph_image_url || summary.graph_image_src),
+        graph_image_src: resolveApiUrl(summary.graph_image_src || summary.graph_image_url || summary.graph_png_url),
+        distraction_images: (summary.distraction_images || []).map((image) => ({
+            ...image,
+            url: resolveApiUrl(image.url),
+        })),
+        system_observations: summary.system_observations || [
             `Raw telemetry contains ${summary.interval_count || 0} intervals across ${(summary.top_domains || []).length} domains.`,
             `Total captured duration was ${totalDurationMinutes} minutes.`,
-            "Processed focus metrics are not wired yet; teammates' analytics pipeline will populate these fields.",
+            "Merged browser and camera analytics are still incomplete for this session, so fallback fields are being shown.",
         ],
         coaching_report:
-            "StudyClaw coaching is not connected yet. This page is currently showing raw-backend-backed session metadata with placeholder coaching content until the analytics and OpenClaw layers are integrated.",
+            summary.coaching_report ||
+            "StudyClaw coaching is not connected yet. This page is currently showing derived session metadata until the analytics and OpenClaw layers are integrated.",
     };
 }
 
@@ -70,7 +86,10 @@ export const SessionAPI = {
             method: "POST",
             body: JSON.stringify({ user_id, course, assignment, planned_duration_minutes }),
         });
-        return normalizeSession(data.session);
+        return {
+            ...normalizeSession(data.session),
+            computer_vision: data.computer_vision ?? null,
+        };
     },
 
     async stopSession(sessionId) {
@@ -78,7 +97,10 @@ export const SessionAPI = {
             method: "POST",
             body: JSON.stringify({}),
         });
-        return normalizeSession(data.session);
+        return {
+            ...normalizeSession(data.session),
+            computer_vision: data.computer_vision ?? null,
+        };
     },
 
     async listSessions() {
@@ -97,6 +119,17 @@ export const SessionAPI = {
             request(`/sessions/${sessionId}/summary`),
         ]);
         return buildSummaryFallback(sessionData.session, summaryData.summary || {});
+    },
+
+    async getFinalDataset(sessionId) {
+        const dataset = await request(`/sessions/${sessionId}/final-dataset`);
+        if (!dataset?.summary) {
+            return dataset;
+        }
+        return {
+            ...dataset,
+            summary: buildSummaryFallback(dataset.session, dataset.summary),
+        };
     },
 
     async getSessionIntervals(sessionId) {

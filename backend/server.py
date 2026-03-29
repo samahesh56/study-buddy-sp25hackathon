@@ -7,16 +7,22 @@ import uuid
 from datetime import UTC, datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from mimetypes import guess_type
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from backend.cv_manager import ComputerVisionManager
+from backend.final_dataset import FinalDatasetService
 from backend.storage import Storage
 from backend.studyclaw import build_studyclaw_context, generate_placeholder_chat_response
 
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_DB_PATH = ROOT / "data" / "studyclaw.sqlite3"
+DEFAULT_CAMERA_DATA_DIR = ROOT.parent / "ComputerVision" / "Data"
+DEFAULT_CAMERA_SCRIPT_PATH = ROOT.parent / "ComputerVision" / "attention_classifier.py"
+DEFAULT_CAMERA_LOGS_DIR = ROOT / "logs" / "computer-vision"
 INTERVAL_CSV_COLUMNS = (
     "event_id",
     "batch_id",
@@ -95,6 +101,17 @@ def csv_response(
     handler.wfile.write(body)
 
 
+def binary_response(handler: BaseHTTPRequestHandler, status: int, body: bytes, content_type: str) -> None:
+    handler.send_response(status)
+    handler.send_header("Content-Type", content_type)
+    handler.send_header("Content-Length", str(len(body)))
+    handler.send_header("Access-Control-Allow-Origin", "*")
+    handler.send_header("Access-Control-Allow-Headers", "Content-Type")
+    handler.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
 def load_json_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
     content_length = int(handler.headers.get("Content-Length", "0"))
     raw = handler.rfile.read(content_length) if content_length else b"{}"
@@ -135,6 +152,8 @@ def validate_event(event: dict[str, Any], batch_session_id: str) -> list[str]:
 
 class StudyClawHandler(BaseHTTPRequestHandler):
     storage: Storage
+    final_dataset: FinalDatasetService
+    cv_manager: ComputerVisionManager
 
     def do_OPTIONS(self) -> None:
         json_response(self, HTTPStatus.NO_CONTENT, {})
@@ -156,7 +175,9 @@ class StudyClawHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/debug/state":
-            json_response(self, HTTPStatus.OK, self.storage.debug_state())
+            state = self.storage.debug_state()
+            state["computer_vision"] = self.cv_manager.get_status()
+            json_response(self, HTTPStatus.OK, state)
             return
 
         if parsed.path == "/integrations/canvas/courses":
@@ -172,9 +193,9 @@ class StudyClawHandler(BaseHTTPRequestHandler):
             query = parse_qs(parsed.query)
             session_id = query.get("session_id", [None])[0]
             if not session_id:
-                json_response(self, HTTPStatus.OK, {"sessions": self.storage.list_sessions()})
+                json_response(self, HTTPStatus.OK, {"sessions": self.final_dataset.list_sessions()})
                 return
-            session = self.storage.get_session(session_id)
+            session = self.final_dataset.get_enriched_session(session_id)
             if not session:
                 json_response(self, HTTPStatus.NOT_FOUND, {"error": "session not found"})
                 return
@@ -183,7 +204,7 @@ class StudyClawHandler(BaseHTTPRequestHandler):
 
         if len(path_parts) >= 2 and path_parts[0] == "sessions":
             session_id = path_parts[1]
-            session = self.storage.get_session(session_id)
+            session = self.final_dataset.get_enriched_session(session_id)
             if not session:
                 json_response(self, HTTPStatus.NOT_FOUND, {"error": "session not found"})
                 return
@@ -219,8 +240,41 @@ class StudyClawHandler(BaseHTTPRequestHandler):
                 return
 
             if len(path_parts) == 3 and path_parts[2] == "summary":
-                summary = self.storage.get_session_summary(session_id)
+                summary = self.final_dataset.get_session_summary(session_id)
                 json_response(self, HTTPStatus.OK, {"summary": summary})
+                return
+
+            if len(path_parts) == 3 and path_parts[2] == "final-dataset":
+                dataset = self.final_dataset.get_final_dataset(session_id)
+                json_response(self, HTTPStatus.OK, dataset or {})
+                return
+
+            if len(path_parts) == 3 and path_parts[2] == "graph.png":
+                graph_path = self.final_dataset.get_session_graph_path(session_id)
+                if not graph_path:
+                    json_response(self, HTTPStatus.NOT_FOUND, {"error": "graph not found"})
+                    return
+                binary_response(
+                    self,
+                    HTTPStatus.OK,
+                    graph_path.read_bytes(),
+                    guess_type(graph_path.name)[0] or "image/png",
+                )
+                return
+
+            if len(path_parts) == 4 and path_parts[2] == "distraction-images":
+                image_name = path_parts[3]
+                image_paths = self.final_dataset.get_session_distraction_image_paths(session_id)
+                image_path = image_paths.get(image_name)
+                if not image_path:
+                    json_response(self, HTTPStatus.NOT_FOUND, {"error": "distraction image not found"})
+                    return
+                binary_response(
+                    self,
+                    HTTPStatus.OK,
+                    image_path.read_bytes(),
+                    guess_type(image_path.name)[0] or "image/png",
+                )
                 return
 
             if len(path_parts) == 3 and path_parts[2] == "studyclaw-context":
@@ -243,16 +297,30 @@ class StudyClawHandler(BaseHTTPRequestHandler):
                 planned_duration_minutes=body.get("planned_duration_minutes"),
                 created_at=utc_now_iso(),
             )
-            json_response(self, HTTPStatus.CREATED, {"session": session})
+            cv_status = self.cv_manager.start_session(session)
+            if not cv_status.get("started"):
+                self.storage.stop_session(session["session_id"], utc_now_iso())
+                json_response(
+                    self,
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {
+                        "error": "computer vision failed to start",
+                        "session": self.final_dataset.get_enriched_session(session["session_id"]),
+                        "computer_vision": cv_status,
+                    },
+                )
+                return
+            json_response(self, HTTPStatus.CREATED, {"session": session, "computer_vision": cv_status})
             return
 
         if parsed.path.startswith("/sessions/") and parsed.path.endswith("/stop"):
             session_id = parsed.path.split("/")[2]
+            cv_status = self.cv_manager.stop_session(session_id)
             stopped = self.storage.stop_session(session_id, utc_now_iso())
             if not stopped:
                 json_response(self, HTTPStatus.NOT_FOUND, {"error": "active session not found"})
                 return
-            json_response(self, HTTPStatus.OK, {"session": stopped})
+            json_response(self, HTTPStatus.OK, {"session": stopped, "computer_vision": cv_status})
             return
 
         if parsed.path == "/telemetry/browser-batch":
@@ -384,10 +452,25 @@ class StudyClawHandler(BaseHTTPRequestHandler):
         sys.stdout.write(f"{self.address_string()} - {fmt % args}\n")
 
 
-def create_server(host: str, port: int, db_path: str | None = None) -> ThreadingHTTPServer:
+def create_server(
+    host: str,
+    port: int,
+    db_path: str | None = None,
+    camera_data_dir: str | None = None,
+    camera_script_path: str | None = None,
+) -> ThreadingHTTPServer:
     storage = Storage(db_path or str(DEFAULT_DB_PATH))
     handler_cls = StudyClawHandler
     handler_cls.storage = storage
+    handler_cls.final_dataset = FinalDatasetService(
+        storage,
+        camera_data_dir=camera_data_dir or str(DEFAULT_CAMERA_DATA_DIR),
+    )
+    handler_cls.cv_manager = ComputerVisionManager(
+        storage,
+        script_path=camera_script_path or str(DEFAULT_CAMERA_SCRIPT_PATH),
+        logs_dir=str(DEFAULT_CAMERA_LOGS_DIR),
+    )
     return ThreadingHTTPServer((host, port), handler_cls)
 
 
@@ -395,7 +478,9 @@ def main() -> None:
     host = os.environ.get("STUDYCLAW_HOST", "127.0.0.1")
     port = int(os.environ.get("STUDYCLAW_PORT", "8000"))
     db_path = os.environ.get("STUDYCLAW_DB_PATH", str(DEFAULT_DB_PATH))
-    server = create_server(host, port, db_path)
+    camera_data_dir = os.environ.get("STUDYCLAW_CAMERA_DATA_DIR", str(DEFAULT_CAMERA_DATA_DIR))
+    camera_script_path = os.environ.get("STUDYCLAW_CAMERA_SCRIPT_PATH", str(DEFAULT_CAMERA_SCRIPT_PATH))
+    server = create_server(host, port, db_path, camera_data_dir, camera_script_path)
     print(f"StudyClaw backend listening on http://{host}:{port} using {db_path}")
     try:
         server.serve_forever()

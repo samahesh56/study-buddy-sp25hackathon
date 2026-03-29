@@ -1,14 +1,47 @@
 let pendingScrollCount = 0;
 let scrollFlushTimeout = null;
+const APP_HOSTNAMES = new Set(["127.0.0.1", "localhost"]);
+const isStudyClawAppPage = APP_HOSTNAMES.has(window.location.hostname);
+
+function canUseExtensionRuntime() {
+  return typeof chrome !== "undefined" && Boolean(chrome?.runtime?.id);
+}
+
+function isContextInvalidatedError(error) {
+  const message = String(error?.message || error || "");
+  return message.includes("Extension context invalidated");
+}
+
+function postExtensionBridgeError(requestId, error) {
+  window.postMessage(
+    {
+      source: "studyclaw-extension",
+      requestId,
+      ok: false,
+      error,
+    },
+    "*"
+  );
+}
 
 function sendActivity(payload) {
-  chrome.runtime.sendMessage(
-    {
-      type: "content-activity",
-      payload
-    },
-    () => chrome.runtime.lastError
-  );
+  if (isStudyClawAppPage || !canUseExtensionRuntime()) {
+    return;
+  }
+
+  try {
+    chrome.runtime.sendMessage(
+      {
+        type: "content-activity",
+        payload
+      },
+      () => chrome.runtime?.lastError
+    );
+  } catch (error) {
+    if (!isContextInvalidatedError(error)) {
+      throw error;
+    }
+  }
 }
 
 function flushScrollActivity() {
@@ -217,16 +250,18 @@ function normalizeVisibleCourseName(value) {
     .trim();
 }
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type === "background:canvas:get-courses") {
-    fetchCanvasCourses()
-      .then((result) => sendResponse({ ok: true, ...result }))
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
-    return true;
-  }
+if (canUseExtensionRuntime()) {
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === "background:canvas:get-courses") {
+      fetchCanvasCourses()
+        .then((result) => sendResponse({ ok: true, ...result }))
+        .catch((error) => sendResponse({ ok: false, error: error.message }));
+      return true;
+    }
 
-  return false;
-});
+    return false;
+  });
+}
 
 window.addEventListener("message", (event) => {
   if (event.source !== window) return;
@@ -243,36 +278,44 @@ window.addEventListener("message", (event) => {
   const targetType = messageMap[data.type];
   if (!targetType) return;
 
-  chrome.runtime.sendMessage(
-    {
-      type: targetType,
-      payload: data.payload || {}
-    },
-    (response) => {
-      const runtimeError = chrome.runtime.lastError;
-      if (runtimeError) {
+  if (!canUseExtensionRuntime()) {
+    postExtensionBridgeError(data.requestId, "StudyClaw extension is unavailable. Reload the extension and refresh the page.");
+    return;
+  }
+
+  try {
+    chrome.runtime.sendMessage(
+      {
+        type: targetType,
+        payload: data.payload || {}
+      },
+      (response) => {
+        const runtimeError = chrome.runtime?.lastError;
+        if (runtimeError) {
+          postExtensionBridgeError(data.requestId, runtimeError.message);
+          return;
+        }
+
         window.postMessage(
           {
             source: "studyclaw-extension",
             requestId: data.requestId,
-            ok: false,
-            error: runtimeError.message
+            ok: Boolean(response?.ok),
+            payload: response,
+            error: response?.error || null
           },
           "*"
         );
-        return;
       }
-
-      window.postMessage(
-        {
-          source: "studyclaw-extension",
-          requestId: data.requestId,
-          ok: Boolean(response?.ok),
-          payload: response,
-          error: response?.error || null
-        },
-        "*"
+    );
+  } catch (error) {
+    if (isContextInvalidatedError(error)) {
+      postExtensionBridgeError(
+        data.requestId,
+        "StudyClaw extension context was invalidated. Reload the extension and refresh the page."
       );
+      return;
     }
-  );
+    throw error;
+  }
 });

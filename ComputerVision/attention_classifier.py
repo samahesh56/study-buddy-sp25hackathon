@@ -37,6 +37,7 @@ import json
 import math
 import os
 import re
+import signal
 import time
 import threading
 import urllib.request
@@ -131,6 +132,8 @@ DISTRACT_SNAP_COOLDOWN_SEC      = 10.0   # min seconds between distraction scree
 # ── Output ─────────────────────────────────────────────────────────────────
 DATA_DIR              = Path(__file__).parent / "Data"
 SNAPSHOT_INTERVAL_SEC = 5.0
+STOP_REQUESTED        = False
+READY_FILE_PATH       = os.environ.get("STUDYCLAW_CV_READY_FILE")
 
 # ── Display ────────────────────────────────────────────────────────────────
 WINDOW_NAME   = "Attention Classifier  [q / Esc to quit]"
@@ -501,19 +504,40 @@ class ThumbsUpDetector:
         self._hl = mp.tasks.vision.HandLandmarker.create_from_options(opts)
         self._start_time = time.perf_counter()
         self._thumbs_count = 0  # consecutive frames with 2 thumbs up
-        self._CONFIRM_FRAMES = 10  # need ~0.7s of sustained thumbs up
+        self._CONFIRM_FRAMES = 6  # shorter hold improves reliability in normal webcam use
 
     def _is_thumb_up(self, hand_lm) -> bool:
         """Check if a single hand is doing thumbs-up.
         Thumb tip (4) above thumb IP (3) above thumb MCP (2),
         AND all four fingers curled (tip below PIP)."""
-        # Thumb must be pointing up
-        thumb_up = hand_lm[4].y < hand_lm[3].y < hand_lm[2].y
+        thumb_tip = hand_lm[4]
+        thumb_ip = hand_lm[3]
+        thumb_mcp = hand_lm[2]
+        thumb_cmc = hand_lm[1]
+        wrist = hand_lm[0]
+
+        # Thumb must be clearly raised above the hand.
+        thumb_up = (
+            thumb_tip.y < thumb_ip.y < thumb_mcp.y
+            and thumb_tip.y < wrist.y - 0.05
+            and thumb_tip.y < thumb_cmc.y
+        )
         if not thumb_up:
             return False
-        # All other fingers curled: tip below PIP
-        for tip, pip in [(8,6), (12,10), (16,14), (20,18)]:
-            if hand_lm[tip].y < hand_lm[pip].y:  # finger extended
+
+        # Other fingers should not be extended upward like an open hand.
+        curled_fingers = 0
+        for tip, pip, mcp in [(8, 6, 5), (12, 10, 9), (16, 14, 13), (20, 18, 17)]:
+            if hand_lm[tip].y > hand_lm[pip].y or hand_lm[tip].y > hand_lm[mcp].y:
+                curled_fingers += 1
+
+        if curled_fingers < 3:
+            return False
+
+        # Ignore sideways hands where the thumb is not actually vertical.
+        thumb_vertical_gain = wrist.y - thumb_tip.y
+        thumb_horizontal_drift = abs(thumb_tip.x - thumb_mcp.x)
+        if thumb_vertical_gain <= thumb_horizontal_drift:
                 return False
         return True
 
@@ -1390,6 +1414,10 @@ def _save_chart(transitions_report: dict, snapshots_report: dict, path: Path):
     summary = transitions_report["state_summary"]
     snaps   = snapshots_report["snapshots"]
     dur     = max(transitions_report["duration_sec"], 1.0)
+    total_percent = sum(v["percent"] for v in summary.values())
+    if total_percent <= 0 or not snaps:
+        print("[WARN] No camera frames captured - skipping chart.")
+        return
 
     # Layout: 2 rows.  Row 1 = donut (left) + focus score (right).
     #                  Row 2 = full-width timeline bar.
@@ -1508,7 +1536,30 @@ def _next_session_dir() -> Path:
     return session_dir
 
 
+def _request_stop(_signum=None, _frame=None):
+    global STOP_REQUESTED
+    STOP_REQUESTED = True
+    print("[INFO] External stop requested. Ending session gracefully.")
+
+
+def _mark_ready():
+    if not READY_FILE_PATH:
+        return
+    try:
+        Path(READY_FILE_PATH).write_text("ready\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
 def main():
+    global STOP_REQUESTED
+    STOP_REQUESTED = False
+    signal.signal(signal.SIGINT, _request_stop)
+    if hasattr(signal, "SIGTERM"):
+        signal.signal(signal.SIGTERM, _request_stop)
+    if hasattr(signal, "SIGBREAK"):
+        signal.signal(signal.SIGBREAK, _request_stop)
+
     session_dir = _next_session_dir()
     sid = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
 
@@ -1531,6 +1582,7 @@ def main():
 
     cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
     print("[INFO] Press  q  or  Esc  to quit.")
+    _mark_ready()
 
     prev       = time.perf_counter()
     prev_gray  = None
@@ -1546,6 +1598,9 @@ def main():
 
     try:
         while True:
+            if STOP_REQUESTED:
+                break
+
             ok, frame = cap.read()
             if not ok:
                 continue

@@ -4,6 +4,7 @@ import { ArrowLeft, Calendar, Clock } from "lucide-react";
 import moment from "moment";
 import { Button } from "@/components/ui/button";
 import { SessionAPI } from "@/lib/api";
+import { cleanCourseTitle } from "@/lib/course-title";
 import SessionOverviewCards from "@/components/detail/SessionOverviewCards";
 import SessionGraphPanel from "@/components/detail/SessionGraphPanel";
 import StudyClawChatPanel from "@/components/chat/StudyClawChatPanel";
@@ -18,14 +19,22 @@ export default function SessionDetail() {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        Promise.all([
-            SessionAPI.getSession(sessionId),
-            SessionAPI.getSessionSummary(sessionId),
-        ]).then(([sessionData, summaryData]) => {
-            setSession(sessionData);
-            setSummary(summaryData);
-            setLoading(false);
-        });
+        SessionAPI.getFinalDataset(sessionId)
+            .then((dataset) => {
+                setSession(dataset.session);
+                setSummary(dataset.summary);
+                setLoading(false);
+            })
+            .catch(() => {
+                Promise.all([
+                    SessionAPI.getSession(sessionId),
+                    SessionAPI.getSessionSummary(sessionId),
+                ]).then(([sessionData, summaryData]) => {
+                    setSession(sessionData);
+                    setSummary(summaryData);
+                    setLoading(false);
+                });
+            });
     }, [sessionId]);
 
     if (loading) {
@@ -48,6 +57,7 @@ export default function SessionDetail() {
     }
 
     const graphImageUrl = summary.graph_image_url || summary.graph_png_url || summary.graph_image_src || null;
+    const distractionImages = summary.distraction_images || [];
 
     return (
         <div className="px-6 md:px-10 py-8 max-w-6xl mx-auto">
@@ -62,7 +72,7 @@ export default function SessionDetail() {
                 <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
                     <div>
                         <h1 className="text-2xl font-semibold text-foreground tracking-tight mb-1">
-                            {session.course || "Study Session"}
+                            {cleanCourseTitle(session.course) || "Study Session"}
                         </h1>
                         <p className="text-sm text-muted-foreground">
                             Post-session review and coaching workspace
@@ -94,7 +104,7 @@ export default function SessionDetail() {
                     <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
                         Analytics Graph
                     </div>
-                    <SessionGraphPanel imageUrl={graphImageUrl} />
+                    <SessionGraphPanel imageUrl={graphImageUrl} distractionImages={distractionImages} />
                 </section>
 
                 <section>

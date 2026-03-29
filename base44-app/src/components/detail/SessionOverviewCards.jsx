@@ -6,22 +6,22 @@ const cardConfig = [
         helper: "Overall session focus"
     },
     {
-        key: "on-task",
-        label: "On Task %",
-        getValue: (summary) => `${Math.round((summary.on_task_ratio ?? 0) * 100)}%`,
-        helper: "Relevant work time"
-    },
-    {
-        key: "off-task",
-        label: "Off Task %",
-        getValue: (summary) => `${Math.round((summary.off_task_ratio ?? 0) * 100)}%`,
-        helper: "Distracting time"
-    },
-    {
         key: "distractions",
         label: "Distractions",
         getValue: (summary) => `${summary.distraction_event_count ?? 0}`,
         helper: "Detected distraction events"
+    },
+    {
+        key: "top-site",
+        label: "Top Site Visited",
+        getValue: (summary) => summary.top_domains?.[0]?.domain ?? "None",
+        helper: "Most visited domain this session"
+    },
+    {
+        key: "tab-switches",
+        label: "Tab Switches",
+        getValue: (summary) => `${summary.tab_switch_count ?? 0}`,
+        helper: "Browser tab changes detected"
     }
 ];
 

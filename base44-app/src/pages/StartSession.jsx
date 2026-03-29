@@ -4,6 +4,7 @@ import { Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CanvasAPI, SessionAPI } from "@/lib/api";
+import { cleanCourseTitle } from "@/lib/course-title";
 import { callExtension } from "@/lib/extension-bridge";
 import DurationPicker from "@/components/session/DurationPicker";
 
@@ -38,26 +39,41 @@ export default function StartSession() {
     const handleStart = async () => {
         if (!canStart) return;
         setStarting(true);
-
-        const session = await SessionAPI.createSession({
-            course: course.trim(),
-            assignment: null,
-            planned_duration_minutes: duration,
-        });
-
+        let createdSession = null;
         try {
+            const extensionState = await callExtension("app:get-extension-state", {}, 5000);
+            if (!extensionState?.ok) {
+                throw new Error(extensionState?.error || "StudyClaw extension is unavailable.");
+            }
+
+            const session = await SessionAPI.createSession({
+                course: course.trim(),
+                assignment: null,
+                planned_duration_minutes: duration,
+            });
+            createdSession = session;
+
             await callExtension("app:start-session-control", { session });
+
+            sessionStorage.setItem("studyclaw_active_session", JSON.stringify({
+                ...session,
+                started_at: new Date().toISOString(),
+            }));
+
+            navigate("/session/active");
         } catch (error) {
-            console.error("Failed to notify extension to start capture", error);
+            if (createdSession?.session_id) {
+                try {
+                    await SessionAPI.stopSession(createdSession.session_id);
+                } catch (stopError) {
+                    console.error("Failed to roll back session after extension startup failure", stopError);
+                }
+            }
+            console.error("Failed to start session", error);
+            alert(error.message || "Failed to start session.");
+        } finally {
+            setStarting(false);
         }
-
-        // Store active session in sessionStorage for the active session page
-        sessionStorage.setItem("studyclaw_active_session", JSON.stringify({
-            ...session,
-            started_at: new Date().toISOString(),
-        }));
-
-        navigate("/session/active");
     };
 
     const handleImportCourses = async () => {
@@ -98,7 +114,7 @@ export default function StartSession() {
                             <SelectContent>
                                 {courses.map((item) => (
                                     <SelectItem key={`${item.canvas_instance_domain}-${item.external_course_id}`} value={item.name}>
-                                        {item.name}
+                                        {cleanCourseTitle(item.name)}
                                     </SelectItem>
                                 ))}
                             </SelectContent>
@@ -147,7 +163,7 @@ export default function StartSession() {
                             <div className="space-y-1.5">
                                 <div className="flex justify-between text-sm">
                                     <span className="text-muted-foreground">Course</span>
-                                    <span className="font-medium text-foreground">{course}</span>
+                                    <span className="font-medium text-foreground">{cleanCourseTitle(course)}</span>
                                 </div>
                                 <div className="flex justify-between text-sm">
                                     <span className="text-muted-foreground">Duration</span>

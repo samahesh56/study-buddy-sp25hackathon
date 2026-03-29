@@ -1,12 +1,15 @@
 __pycache__/
 *.pyc
 backend/data/
+backend/logs/
+backend/tests/.tmp/
 # Computer Vision module
 venv/
 .venv/
 env/
 ComputerVision/Data/
 ComputerVision/__pycache__/
+yolov8n.pt
 *.pyc
 *.py[cod]
 *.class

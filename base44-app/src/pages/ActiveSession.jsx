@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Square, BookOpen, FileText, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { SessionAPI } from "@/lib/api";
+import { SessionAPI, SystemAPI } from "@/lib/api";
+import { cleanCourseTitle } from "@/lib/course-title";
 import { callExtension } from "@/lib/extension-bridge";
 import TelemetryStatus from "@/components/session/TelemetryStatus";
 
@@ -11,6 +12,7 @@ export default function ActiveSession() {
     const [session, setSession] = useState(null);
     const [elapsed, setElapsed] = useState(0);
     const [stopping, setStopping] = useState(false);
+    const handlingRemoteStopRef = useRef(false);
 
     useEffect(() => {
         const stored = sessionStorage.getItem("studyclaw_active_session");
@@ -28,9 +30,47 @@ export default function ActiveSession() {
         return () => clearInterval(interval);
     }, [session]);
 
+    useEffect(() => {
+        if (!session) return;
+
+        let cancelled = false;
+
+        const checkSessionState = async () => {
+            if (handlingRemoteStopRef.current || cancelled) return;
+
+            try {
+                const data = await SystemAPI.getActiveSession();
+                const activeSession = data?.active_session ?? null;
+                if (!activeSession || activeSession.session_id !== session.session_id) {
+                    handlingRemoteStopRef.current = true;
+                    try {
+                        await callExtension("app:stop-session-control", { sessionId: session.session_id });
+                    } catch (error) {
+                        console.error("Failed to notify extension after backend-initiated stop", error);
+                    }
+                    sessionStorage.removeItem("studyclaw_active_session");
+                    if (!cancelled) {
+                        navigate(`/history/${session.session_id}`);
+                    }
+                }
+            } catch (error) {
+                console.error("Failed to poll active session state", error);
+            }
+        };
+
+        const interval = setInterval(checkSessionState, 3000);
+        checkSessionState();
+
+        return () => {
+            cancelled = true;
+            clearInterval(interval);
+        };
+    }, [navigate, session]);
+
     const handleStop = async () => {
         if (!session) return;
         setStopping(true);
+        handlingRemoteStopRef.current = true;
         try {
             await callExtension("app:stop-session-control", { sessionId: session.session_id });
         } catch (error) {
@@ -113,7 +153,7 @@ export default function ActiveSession() {
                         <BookOpen className="w-4 h-4 text-muted-foreground/50 shrink-0" />
                         <div>
                             <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Course</div>
-                            <div className="text-sm font-medium text-foreground">{session.course}</div>
+                            <div className="text-sm font-medium text-foreground">{cleanCourseTitle(session.course)}</div>
                         </div>
                     </div>
                     <div className="flex items-center gap-3">

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Play, Target, Clock, Flame, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SessionAPI } from "@/lib/api";
+import { cleanCourseTitle } from "@/lib/course-title";
 import MetricCard from "@/components/dashboard/MetricCard";
 import RecentSessionRow from "@/components/dashboard/RecentSessionRow";
 import InsightCard from "@/components/dashboard/InsightCard";
@@ -25,6 +26,7 @@ export default function Dashboard() {
         : 0;
     const totalMinutes = sessions.reduce((a, s) => a + (s.actual_duration_minutes || 0), 0);
     const bestStreak = Math.max(...sessions.map(s => s.focus_score || 0), 0);
+    const topCourse = cleanCourseTitle(sessions[0]?.course) || "None yet";
 
     if (loading) {
         return (
@@ -122,7 +124,7 @@ export default function Dashboard() {
                             </div>
                             <div className="flex items-center justify-between">
                                 <span className="text-xs text-muted-foreground">Top Course</span>
-                                <span className="text-sm font-medium text-foreground">CMPSC 132</span>
+                                <span className="text-sm font-medium text-foreground">{topCourse}</span>
                             </div>
                             <div className="flex items-center justify-between">
                                 <span className="text-xs text-muted-foreground">Distractions / Session</span>

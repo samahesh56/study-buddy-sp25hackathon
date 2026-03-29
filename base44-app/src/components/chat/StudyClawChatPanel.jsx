@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ChatAPI, SessionAPI } from "@/lib/api";
+import { cleanCourseTitle } from "@/lib/course-title";
 import ChatBubble from "@/components/chat/ChatBubble";
 
 const INITIAL_MESSAGE = {
@@ -99,7 +100,7 @@ export default function StudyClawChatPanel({
                             <SelectItem value="latest">Latest Session</SelectItem>
                             {sessions.map((session) => (
                                 <SelectItem key={session.session_id} value={session.session_id}>
-                                    {session.course || "Session"} {session.assignment ? `— ${session.assignment}` : ""}
+                                    {cleanCourseTitle(session.course) || "Session"} {session.assignment ? `- ${session.assignment}` : ""}
                                 </SelectItem>
                             ))}
                             <SelectItem value="none">No session context</SelectItem>

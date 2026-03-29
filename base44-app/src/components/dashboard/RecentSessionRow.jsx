@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
 import moment from "moment";
+import { cleanCourseTitle } from "@/lib/course-title";
 
 export default function RecentSessionRow({ session }) {
     const focusColor = session.focus_score >= 80 ? "text-emerald-600" :
@@ -13,7 +14,7 @@ export default function RecentSessionRow({ session }) {
         >
             <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-foreground truncate">{session.course}</span>
+                    <span className="text-sm font-medium text-foreground truncate">{cleanCourseTitle(session.course)}</span>
                     <span className="text-xs text-muted-foreground">·</span>
                     <span className="text-xs text-muted-foreground truncate">{session.assignment}</span>
                 </div>

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { ChevronRight, Clock, Target } from "lucide-react";
 import { SessionAPI } from "@/lib/api";
 import moment from "moment";
+import { cleanCourseTitle } from "@/lib/course-title";
 import { cn } from "@/lib/utils";
 
 export default function SessionHistory() {
@@ -71,7 +72,7 @@ function SessionCard({ session }) {
             {/* Info */}
             <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-0.5">
-                    <span className="text-sm font-medium text-foreground truncate">{session.course}</span>
+                    <span className="text-sm font-medium text-foreground truncate">{cleanCourseTitle(session.course)}</span>
                     <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-medium", statusColors[session.status] || statusColors.completed)}>
                         {session.status}
                     </span>
