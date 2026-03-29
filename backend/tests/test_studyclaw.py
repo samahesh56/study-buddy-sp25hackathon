@@ -37,7 +37,15 @@ class StudyClawOpenClawAdapterTests(unittest.TestCase):
             print(json.dumps({
                 "payloads": [
                     {"text": "Coach response"},
-                    {"text": "Prompt echoed: " + ("CURRENT SESSION SUMMARY:" in message and "yes" or "no")},
+                    {
+                        "text": "Prompt echoed: "
+                        + (
+                            "metrics="
+                            + ("yes" if "CURRENT SESSION METRICS:" in message else "no")
+                            + ",dataset="
+                            + ("yes" if "CURRENT SESSION DATASET:" in message else "no")
+                        )
+                    },
                 ],
                 "meta": {
                     "agentMeta": {
@@ -70,6 +78,36 @@ class StudyClawOpenClawAdapterTests(unittest.TestCase):
                 "timeline_highlights": [],
                 "system_observations": ["Test observation"],
             },
+            "current_dataset": {
+                "session": {"session_id": "sess_123", "status": "stopped"},
+                "camera_artifact": {
+                    "camera_session_id": "camera_123",
+                    "started_at": "2026-03-29T11:00:00Z",
+                    "ended_at": "2026-03-29T11:30:00Z",
+                    "graph_path": "C:/tmp/graph.png",
+                    "distraction_images": [
+                        {
+                            "filename": "snap1.png",
+                            "captured_at": "2026-03-29T11:05:00Z",
+                            "url": "/sessions/sess_123/distraction-images/snap1.png",
+                        }
+                    ],
+                },
+                "segments": [
+                    {
+                        "segment_start": "2026-03-29T11:00:00Z",
+                        "segment_end": "2026-03-29T11:00:30Z",
+                        "duration_ms": 30000,
+                        "browser_domain": "docs.google.com",
+                        "browser_title": "Notes",
+                        "camera_attention_state": "FOCUSED",
+                        "camera_focus_score": 91.2,
+                        "camera_phone_flag": False,
+                        "merged_attention_label": "focused",
+                        "merged_productivity_label": "on_task",
+                    }
+                ],
+            },
             "recent_history_digest": {
                 "sessions_considered": 3,
                 "average_focus_score": 79.1,
@@ -88,7 +126,7 @@ class StudyClawOpenClawAdapterTests(unittest.TestCase):
         self.assertEqual(response["context"]["model"], "fake-openclaw")
         self.assertEqual(response["context"]["agent_session_id"], "agent-test-123")
         self.assertIn("Coach response", response["content"])
-        self.assertIn("Prompt echoed: yes", response["content"])
+        self.assertIn("Prompt echoed: metrics=yes,dataset=yes", response["content"])
 
     def test_openclaw_failure_falls_back_to_placeholder_response(self) -> None:
         script_path = self._write_fake_openclaw_script(

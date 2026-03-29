@@ -170,21 +170,23 @@ def _generate_openclaw_chat_response(context: dict[str, Any] | None, message: st
 
 def _build_openclaw_prompt(context: dict[str, Any] | None, message: str) -> str:
     session_summary = context.get("current_session") if context else None
+    current_dataset = context.get("current_dataset") if context else None
     history_digest = context.get("recent_history_digest") if context else None
     session_meta = context.get("session") if context else None
 
-    summary_payload = {
-        "course": session_meta.get("course") if session_meta else None,
-        "assignment": session_meta.get("assignment") if session_meta else None,
-        "focus_score": session_summary.get("focus_score") if session_summary else None,
-        "on_task_ratio": session_summary.get("on_task_ratio") if session_summary else None,
-        "away_ratio": session_summary.get("away_ratio") if session_summary else None,
-        "distraction_event_count": session_summary.get("distraction_event_count") if session_summary else None,
-        "top_domains": session_summary.get("top_domains") if session_summary else [],
-        "top_distraction_domains": session_summary.get("top_distraction_domains") if session_summary else [],
-        "top_relevant_domains": session_summary.get("top_relevant_domains") if session_summary else [],
-        "timeline_highlights": session_summary.get("timeline_highlights") if session_summary else [],
-        "system_observations": session_summary.get("system_observations") if session_summary else [],
+    summary_payload = dict(session_summary or {})
+    summary_payload.update(
+        {
+            "course": session_meta.get("course") if session_meta else None,
+            "assignment": session_meta.get("assignment") if session_meta else None,
+        }
+    )
+
+    dataset_payload = {
+        "session": current_dataset.get("session") if current_dataset else None,
+        "camera_artifact": _compact_camera_artifact(current_dataset.get("camera_artifact")) if current_dataset else None,
+        "segment_count": len(current_dataset.get("segments", [])) if current_dataset else 0,
+        "segments_preview": _build_segments_preview(current_dataset.get("segments", [])) if current_dataset else [],
     }
 
     history_payload = {
@@ -201,8 +203,10 @@ def _build_openclaw_prompt(context: dict[str, Any] | None, message: str) -> str:
         "Answer the user's question using the provided session metrics. "
         "Be concise, practical, and specific to the session.\n\n"
         f"USER MESSAGE:\n{message}\n\n"
-        "CURRENT SESSION SUMMARY:\n"
+        "CURRENT SESSION METRICS:\n"
         f"{json.dumps(summary_payload, indent=2)}\n\n"
+        "CURRENT SESSION DATASET:\n"
+        f"{json.dumps(dataset_payload, indent=2)}\n\n"
         "RECENT HISTORY DIGEST:\n"
         f"{json.dumps(history_payload, indent=2)}"
     )
@@ -264,6 +268,46 @@ def _find_json_object_candidates(output: str) -> list[str]:
         candidates.append(output[index : index + end])
         index += end
     return candidates
+
+
+def _compact_camera_artifact(camera_artifact: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not camera_artifact:
+        return None
+
+    return {
+        "camera_session_id": camera_artifact.get("camera_session_id"),
+        "started_at": camera_artifact.get("started_at"),
+        "ended_at": camera_artifact.get("ended_at"),
+        "graph_path": camera_artifact.get("graph_path"),
+        "distraction_images": [
+            {
+                "filename": image.get("filename"),
+                "captured_at": image.get("captured_at"),
+                "url": image.get("url"),
+            }
+            for image in camera_artifact.get("distraction_images", [])
+        ],
+    }
+
+
+def _build_segments_preview(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    preview: list[dict[str, Any]] = []
+    for segment in segments[:8]:
+        preview.append(
+            {
+                "segment_start": segment.get("segment_start"),
+                "segment_end": segment.get("segment_end"),
+                "duration_ms": segment.get("duration_ms"),
+                "browser_domain": segment.get("browser_domain"),
+                "browser_title": segment.get("browser_title"),
+                "camera_attention_state": segment.get("camera_attention_state"),
+                "camera_focus_score": segment.get("camera_focus_score"),
+                "camera_phone_flag": segment.get("camera_phone_flag"),
+                "merged_attention_label": segment.get("merged_attention_label"),
+                "merged_productivity_label": segment.get("merged_productivity_label"),
+            }
+        )
+    return preview
 
 
 def _build_recurring_patterns(summaries: list[dict[str, Any]]) -> list[str]:
