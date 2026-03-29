@@ -158,10 +158,10 @@ Key thresholds can be tuned at the top of `attention_classifier.py`:
 
 ## 👥 Team
 
-Built for **HackPSU 2026**.
+Built for **HackPSU 2026** by Thomas Askharoun & David Sepko.
 
 ---
 
 ## 📄 License
 
-This project was built for a hackathon. Feel free to use and modify for educational purposes.
+This project was built for a hackathon. Feel free to use and modify for educational purposes :)
