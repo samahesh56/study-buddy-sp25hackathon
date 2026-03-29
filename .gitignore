@@ -1,3 +1,13 @@
 __pycache__/
 *.pyc
 backend/data/
+
+# Computer Vision module
+venv/
+.venv/
+env/
+ComputerVision/Data/
+ComputerVision/__pycache__/
+*.pyc
+*.py[cod]
+*.class
