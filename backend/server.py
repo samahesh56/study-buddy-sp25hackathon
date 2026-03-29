@@ -101,6 +101,15 @@ class StudyClawHandler(BaseHTTPRequestHandler):
             json_response(self, HTTPStatus.OK, self.storage.debug_state())
             return
 
+        if parsed.path == "/integrations/canvas/courses":
+            query = parse_qs(parsed.query)
+            user_id = query.get("user_id", [None])[0]
+            if not user_id:
+                json_response(self, HTTPStatus.BAD_REQUEST, {"error": "user_id query parameter is required"})
+                return
+            json_response(self, HTTPStatus.OK, {"courses": self.storage.list_canvas_courses(user_id)})
+            return
+
         if parsed.path == "/sessions":
             query = parse_qs(parsed.query)
             session_id = query.get("session_id", [None])[0]
@@ -212,6 +221,40 @@ class StudyClawHandler(BaseHTTPRequestHandler):
                     "accepted_event_ids": accepted_event_ids,
                     "duplicate_event_ids": duplicate_event_ids,
                     "server_received_at": received_at,
+                },
+            )
+            return
+
+        if parsed.path == "/integrations/canvas/courses/import":
+            body = load_json_body(self)
+            for field in ("user_id", "canvas_instance_domain", "imported_at", "courses"):
+                if field not in body:
+                    json_response(self, HTTPStatus.BAD_REQUEST, {"error": f"missing field: {field}"})
+                    return
+
+            if not isinstance(body["courses"], list) or not body["courses"]:
+                json_response(self, HTTPStatus.BAD_REQUEST, {"error": "courses must be a non-empty list"})
+                return
+
+            for course in body["courses"]:
+                for field in ("external_course_id", "name"):
+                    if field not in course:
+                        json_response(self, HTTPStatus.BAD_REQUEST, {"error": f"course missing field: {field}"})
+                        return
+
+            imported_count = self.storage.upsert_canvas_courses(
+                user_id=body["user_id"],
+                canvas_instance_domain=body["canvas_instance_domain"],
+                imported_at=body["imported_at"],
+                courses=body["courses"],
+            )
+            json_response(
+                self,
+                HTTPStatus.OK,
+                {
+                    "imported": True,
+                    "imported_count": imported_count,
+                    "courses": self.storage.list_canvas_courses(body["user_id"]),
                 },
             )
             return

@@ -18,7 +18,10 @@ const STORAGE_KEYS = {
   queuedEvents: "queuedEvents",
   batchSequence: "batchSequence",
   lastUploadResult: "lastUploadResult",
-  lastError: "lastError"
+  lastError: "lastError",
+  canvasCoursesCache: "canvasCoursesCache",
+  canvasLastImport: "canvasLastImport",
+  canvasLastDomain: "canvasLastDomain"
 };
 
 const ALARMS = {
@@ -47,6 +50,9 @@ async function ensureDefaults() {
   if (typeof state[STORAGE_KEYS.batchSequence] !== "number") {
     updates[STORAGE_KEYS.batchSequence] = 0;
   }
+  if (!state[STORAGE_KEYS.canvasCoursesCache]) {
+    updates[STORAGE_KEYS.canvasCoursesCache] = [];
+  }
   if (Object.keys(updates).length > 0) {
     await setState(updates);
   }
@@ -68,6 +74,15 @@ async function getActiveTab() {
 async function getBackendBaseUrl() {
   const state = await getState([STORAGE_KEYS.backendBaseUrl]);
   return state[STORAGE_KEYS.backendBaseUrl] || "http://127.0.0.1:8000";
+}
+
+async function getCanvasCache() {
+  const state = await getState([STORAGE_KEYS.canvasCoursesCache, STORAGE_KEYS.canvasLastImport, STORAGE_KEYS.canvasLastDomain]);
+  return {
+    courses: state[STORAGE_KEYS.canvasCoursesCache] ?? [],
+    lastImport: state[STORAGE_KEYS.canvasLastImport] ?? null,
+    lastDomain: state[STORAGE_KEYS.canvasLastDomain] ?? null
+  };
 }
 
 async function getActiveSession() {
@@ -238,6 +253,110 @@ async function fetchJson(url, options = {}) {
   return response.json();
 }
 
+async function findCanvasTab() {
+  const tabs = await chrome.tabs.query({ url: ["*://*.instructure.com/*"] });
+  return tabs.find((tab) => tab.active) ?? tabs[0] ?? null;
+}
+
+async function waitForTabComplete(tabId, timeoutMs = 15000) {
+  const existing = await chrome.tabs.get(tabId).catch(() => null);
+  if (existing?.status === "complete") {
+    return existing;
+  }
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(listener);
+      reject(new Error("Timed out waiting for Canvas tab to finish loading"));
+    }, timeoutMs);
+
+    function listener(updatedTabId, changeInfo, tab) {
+      if (updatedTabId === tabId && changeInfo.status === "complete") {
+        clearTimeout(timeout);
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve(tab);
+      }
+    }
+
+    chrome.tabs.onUpdated.addListener(listener);
+  });
+}
+
+async function resolveCanvasTab() {
+  const existingTab = await findCanvasTab();
+  if (existingTab?.id) {
+    return existingTab;
+  }
+
+  const cache = await getCanvasCache();
+  if (!cache.lastDomain) {
+    throw new Error("Open Canvas in a browser tab and sign in once before importing courses.");
+  }
+
+  const created = await chrome.tabs.create({ url: `https://${cache.lastDomain}/`, active: true });
+  if (!created?.id) {
+    throw new Error("Failed to open Canvas tab");
+  }
+  return waitForTabComplete(created.id);
+}
+
+async function requestCanvasCoursesFromTab(tabId) {
+  try {
+    return await chrome.tabs.sendMessage(tabId, { type: "background:canvas:get-courses" });
+  } catch (error) {
+    if (String(error?.message || "").includes("Receiving end does not exist")) {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: ["content.js"]
+      });
+      return chrome.tabs.sendMessage(tabId, { type: "background:canvas:get-courses" });
+    }
+    throw error;
+  }
+}
+
+async function importCanvasCourses(userId) {
+  const effectiveUserId = userId || (await getActiveSession())?.user_id || "ryan";
+  const canvasTab = await resolveCanvasTab();
+  if (!canvasTab?.id) {
+    throw new Error("No Canvas tab available for import.");
+  }
+
+  const response = await requestCanvasCoursesFromTab(canvasTab.id).catch((error) => {
+    throw new Error(`Canvas content script request failed: ${error.message}`);
+  });
+
+  if (!response?.ok) {
+    throw new Error(response?.error || "Canvas import failed");
+  }
+
+  const backendBaseUrl = await getBackendBaseUrl();
+  const payload = {
+    user_id: effectiveUserId,
+    canvas_instance_domain: response.canvas_instance_domain,
+    imported_at: nowIso(),
+    courses: response.courses
+  };
+
+  const imported = await fetchJson(`${backendBaseUrl}/integrations/canvas/courses/import`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+
+  await setState({
+    [STORAGE_KEYS.canvasCoursesCache]: imported.courses ?? response.courses,
+    [STORAGE_KEYS.canvasLastImport]: payload.imported_at,
+    [STORAGE_KEYS.canvasLastDomain]: response.canvas_instance_domain
+  });
+
+  return {
+    importedCount: imported.imported_count ?? 0,
+    courses: imported.courses ?? [],
+    canvasInstanceDomain: response.canvas_instance_domain,
+    importedAt: payload.imported_at
+  };
+}
+
 async function syncSessionFromBackend() {
   const backendBaseUrl = await getBackendBaseUrl();
   try {
@@ -397,7 +516,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message?.type === "popup:get-state") {
-    Promise.all([getState(Object.values(STORAGE_KEYS)), getActiveTab()]).then(([state, activeTab]) => {
+    Promise.all([getState(Object.values(STORAGE_KEYS)), getActiveTab(), getCanvasCache()]).then(([state, activeTab, canvasCache]) => {
       sendResponse({
         backendBaseUrl: state[STORAGE_KEYS.backendBaseUrl],
         activeSession: state[STORAGE_KEYS.activeSession] ?? null,
@@ -405,6 +524,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         queuedEventCount: (state[STORAGE_KEYS.queuedEvents] ?? []).length,
         lastUploadResult: state[STORAGE_KEYS.lastUploadResult] ?? null,
         lastError: state[STORAGE_KEYS.lastError] ?? null,
+        canvasCoursesCache: canvasCache.courses,
+        canvasLastImport: canvasCache.lastImport,
+        canvasLastDomain: canvasCache.lastDomain,
         activeTab: activeTab
           ? {
               id: activeTab.id,
@@ -414,6 +536,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           : null
       });
     });
+    return true;
+  }
+
+  if (message?.type === "popup:import-canvas-courses") {
+    importCanvasCourses(message.userId)
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }
 

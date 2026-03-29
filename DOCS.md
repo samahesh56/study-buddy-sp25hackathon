@@ -73,6 +73,8 @@ The backend currently exposes these routes:
 - `GET /sessions/{id}/summary`
 - `POST /sessions/{id}/stop`
 - `POST /telemetry/browser-batch`
+- `POST /integrations/canvas/courses/import`
+- `GET /integrations/canvas/courses?user_id=...`
 - `GET /debug/state`
 
 ### Session Behavior
@@ -97,6 +99,7 @@ Current tables:
 - `sessions`
 - `telemetry_batches`
 - `browser_intervals_raw`
+- `canvas_courses`
 
 Current storage hardening:
 
@@ -172,6 +175,27 @@ Additional reliability behavior:
 
 - queued events can still flush after browser restart if the local active session state is missing but queued raw events still exist
 - extension startup performs a backend session sync and a queue flush attempt
+
+## Canvas Course Import
+
+The extension now supports importing Canvas courses from the user's existing logged-in Canvas browser session.
+
+Current behavior:
+
+- user opens the extension popup
+- user clicks `Import Canvas Courses`
+- the extension looks for an open Canvas tab on `*.instructure.com`
+- if one is found, the content script requests the Canvas course API from that authenticated Canvas tab context
+- the extension normalizes the returned courses
+- the extension posts the course list to the backend
+- the backend caches those courses in `canvas_courses`
+- the extension also stores the latest imported course list and last Canvas domain locally
+
+Current constraints:
+
+- user must already be logged into Canvas in Chrome
+- if no Canvas tab is open and there is no previously cached Canvas domain, import will fail until the user opens Canvas once
+- this is an MVP import flow, not a formal Canvas OAuth integration
 
 ## Raw Event Shape
 

@@ -38,4 +38,9 @@ document.getElementById("flush-queue").addEventListener("click", async () => {
   await runAction(() => send({ type: "popup:flush-queue" }));
 });
 
+document.getElementById("import-canvas").addEventListener("click", async () => {
+  const userId = document.getElementById("user-id").value.trim();
+  await runAction(() => send({ type: "popup:import-canvas-courses", userId }));
+});
+
 refresh();

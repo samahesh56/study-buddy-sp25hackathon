@@ -80,6 +80,19 @@ class Storage:
                     raw_event_json TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS canvas_courses (
+                    user_id TEXT NOT NULL,
+                    canvas_instance_domain TEXT NOT NULL,
+                    external_course_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    course_code TEXT,
+                    term_name TEXT,
+                    workflow_state TEXT,
+                    imported_at TEXT NOT NULL,
+                    raw_course_json TEXT NOT NULL,
+                    PRIMARY KEY (user_id, canvas_instance_domain, external_course_id)
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_sessions_status_started_at
                 ON sessions (status, started_at DESC);
 
@@ -91,6 +104,9 @@ class Storage:
 
                 CREATE INDEX IF NOT EXISTS idx_intervals_received_at
                 ON browser_intervals_raw (server_received_at DESC);
+
+                CREATE INDEX IF NOT EXISTS idx_canvas_courses_user_imported
+                ON canvas_courses (user_id, imported_at DESC);
                 """
             )
             existing_columns = {
@@ -340,6 +356,60 @@ class Storage:
         summary["session"] = session
         summary["top_domains"] = top_domains
         return summary
+
+    def upsert_canvas_courses(
+        self,
+        user_id: str,
+        canvas_instance_domain: str,
+        imported_at: str,
+        courses: list[dict[str, Any]],
+    ) -> int:
+        with self._lock, self._connect() as conn:
+            for course in courses:
+                conn.execute(
+                    """
+                    INSERT INTO canvas_courses (
+                        user_id, canvas_instance_domain, external_course_id,
+                        name, course_code, term_name, workflow_state,
+                        imported_at, raw_course_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(user_id, canvas_instance_domain, external_course_id)
+                    DO UPDATE SET
+                        name = excluded.name,
+                        course_code = excluded.course_code,
+                        term_name = excluded.term_name,
+                        workflow_state = excluded.workflow_state,
+                        imported_at = excluded.imported_at,
+                        raw_course_json = excluded.raw_course_json
+                    """,
+                    (
+                        user_id,
+                        canvas_instance_domain,
+                        str(course["external_course_id"]),
+                        course["name"],
+                        course.get("course_code"),
+                        course.get("term_name"),
+                        course.get("workflow_state"),
+                        imported_at,
+                        json.dumps(course),
+                    ),
+                )
+            conn.commit()
+        return len(courses)
+
+    def list_canvas_courses(self, user_id: str) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT user_id, canvas_instance_domain, external_course_id, name,
+                       course_code, term_name, workflow_state, imported_at
+                FROM canvas_courses
+                WHERE user_id = ?
+                ORDER BY imported_at DESC, name ASC
+                """,
+                (user_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
 
 def normalize_domain(raw_value: str | None) -> str | None:

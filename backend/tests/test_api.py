@@ -133,6 +133,33 @@ class BackendApiTests(unittest.TestCase):
         self.assertEqual(session_summary["summary"]["interval_count"], 1)
         self.assertEqual(session_summary["summary"]["total_duration_ms"], 30000)
 
+        status, imported_courses = self.request(
+            "POST",
+            "/integrations/canvas/courses/import",
+            {
+                "user_id": "ryan",
+                "canvas_instance_domain": "psu.instructure.com",
+                "imported_at": "2026-03-28T21:00:00Z",
+                "courses": [
+                    {
+                        "external_course_id": "12345",
+                        "name": "CMPSC 132",
+                        "course_code": "CMPSC 132",
+                        "term_name": "Spring 2026",
+                        "workflow_state": "available",
+                    }
+                ],
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(imported_courses["imported_count"], 1)
+        self.assertEqual(imported_courses["courses"][0]["name"], "CMPSC 132")
+
+        status, listed_courses = self.request("GET", "/integrations/canvas/courses?user_id=ryan")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(listed_courses["courses"]), 1)
+        self.assertEqual(listed_courses["courses"][0]["canvas_instance_domain"], "psu.instructure.com")
+
         status, stopped = self.request("POST", f"/sessions/{session_id}/stop")
         self.assertEqual(status, 200)
         self.assertEqual(stopped["session"]["status"], "stopped")
