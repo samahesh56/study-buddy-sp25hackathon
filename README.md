@@ -1,4 +1,4 @@
-# study-buddy-sp25hackathon
+# study-buddy-sp26hackathon
 
 StudyClaw raw telemetry MVP:
 
