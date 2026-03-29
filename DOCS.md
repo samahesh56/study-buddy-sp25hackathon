@@ -35,8 +35,7 @@ The current system has two runtime pieces.
 - tracks the active browser tab context
 - collects raw interaction counts
 - closes intervals on context changes
-- rolls long intervals every 30 seconds
-- enforces exact 30-second segmentation on all close paths
+- closes and reopens intervals on notable browser and interaction events
 - queues closed intervals locally
 - uploads telemetry batches to the backend
 - accepts app-triggered control messages from the StudyClaw app page
@@ -74,8 +73,10 @@ The backend currently exposes these routes:
 - `GET /sessions/{id}/intervals`
 - `GET /sessions/{id}/intervals.csv`
 - `GET /sessions/{id}/summary`
+- `GET /sessions/{id}/studyclaw-context`
 - `POST /sessions/{id}/stop`
 - `POST /telemetry/browser-batch`
+- `POST /chat/studyclaw`
 - `POST /integrations/canvas/courses/import`
 - `GET /integrations/canvas/courses?user_id=...`
 - `GET /debug/state`
@@ -121,7 +122,7 @@ The backend also supports clean per-session retrieval so a single session can be
 
 ## Extension Behavior
 
-The extension currently implements the agreed raw collection rules.
+The extension currently implements an event-driven raw collection model.
 
 ### Collection Unit
 
@@ -133,7 +134,7 @@ An interval is opened when:
 - the active tab changes
 - the browser regains focus
 - navigation completes into a new active page
-- a previous segment rolls over
+- a notable event closes the previous interval and starts a new one
 
 An interval is closed when:
 
@@ -141,18 +142,18 @@ An interval is closed when:
 - navigation changes the current page context
 - the browser loses focus
 - the session stops
-- a 30-second max segment is reached
+- the user performs a notable in-page action such as a click, keystroke, scroll burst, visibility change, or page unload
 
 ### Interaction Counts
 
-The content script sends lightweight counters to the background worker:
+The content script sends notable activity checkpoints to the background worker:
 
 - `scroll_count`
 - `click_count`
 - `keystroke_count`
 - `page_visible`
 
-These are attached to the currently open interval for the active tab.
+These are attached to the currently open interval. The interval is then closed at that event timestamp and a new interval starts immediately.
 
 ### Upload Behavior
 
@@ -160,7 +161,6 @@ The extension uploads closed intervals in batches.
 
 Current rules:
 
-- max interval segment length: `30 seconds`
 - batch flush threshold: `20 events`
 - periodic alarm-driven sync/flush cadence: `30 seconds`
 - immediate flush on session stop
@@ -169,10 +169,9 @@ The extension keeps queued intervals locally until the backend acknowledges them
 
 Important implementation detail:
 
-- Chrome MV3 alarms are coarse, so the service worker may wake up after the 30-second boundary
-- the extension corrects that by splitting overshot intervals into exact 30-second stored segments plus a carried-forward remainder
-- that split now happens both on periodic rollover checks and on all other close reasons such as tab switch, blur, and session stop
-- this keeps stored raw interval durations aligned with the intended segmentation rule
+- the collector is event-driven rather than time-sliced
+- if a user clicks a YouTube video and then does nothing for 10 minutes, the interval stays open until the next notable event such as a tab switch, blur, or session stop
+- this preserves passive dwell time while reducing unnecessary data volume
 
 Additional reliability behavior:
 
@@ -343,8 +342,8 @@ Expected result:
 ### Step 3: Generate telemetry
 
 1. Open one normal website such as Reddit, GitHub, or Wikipedia
-2. Stay there for 40 to 45 seconds
-3. Scroll or interact a bit while on that page
+2. Stay there for a while
+3. Scroll, click, or type a bit while on that page
 4. Switch to another normal website
 5. Stay there for 10 to 15 seconds
 6. Click `Stop Session`
@@ -363,7 +362,7 @@ Expected result:
 - `interval_count` is greater than `0`
 - `recent_intervals` contains your visited domains and titles
 - at least one interval should show non-zero interaction counts if you clicked or scrolled
-- if you stayed on a page longer than 30 seconds, you should see a rollover-created interval boundary
+- clicks, keystrokes, scroll bursts, tab switches, blur events, and session stop should create interval boundaries
 
 For a clean single-session artifact, prefer:
 
@@ -453,7 +452,7 @@ Current automated coverage includes:
 - session summary retrieval
 - interval duration calculation
 - domain parsing
-- rollover rule
+- event-driven checkpoint rule
 - batch builder behavior
 
 Current automated coverage does not include:
@@ -486,7 +485,7 @@ What is still not implemented:
 - narrative compression
 - screenshot collection
 - camera attention tracking
-- OpenClaw / StudyClaw coaching layer
+- real OpenClaw / StudyClaw agent backend
 - Base44 integration
 - operational monitoring and deployment hardening
 

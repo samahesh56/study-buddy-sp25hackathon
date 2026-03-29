@@ -12,6 +12,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from backend.storage import Storage
+from backend.studyclaw import build_studyclaw_context, generate_placeholder_chat_response
 
 
 ROOT = Path(__file__).resolve().parent
@@ -222,6 +223,11 @@ class StudyClawHandler(BaseHTTPRequestHandler):
                 json_response(self, HTTPStatus.OK, {"summary": summary})
                 return
 
+            if len(path_parts) == 3 and path_parts[2] == "studyclaw-context":
+                context = build_studyclaw_context(self.storage, session_id)
+                json_response(self, HTTPStatus.OK, {"context": context})
+                return
+
         json_response(self, HTTPStatus.NOT_FOUND, {"error": "not found"})
 
     def do_POST(self) -> None:
@@ -334,6 +340,42 @@ class StudyClawHandler(BaseHTTPRequestHandler):
                 return
             deleted = self.storage.clear_canvas_courses(user_id)
             json_response(self, HTTPStatus.OK, {"cleared": True, "deleted_count": deleted})
+            return
+
+        if parsed.path == "/chat/studyclaw":
+            body = load_json_body(self)
+            message = (body.get("message") or "").strip()
+            if not message:
+                json_response(self, HTTPStatus.BAD_REQUEST, {"error": "missing field: message"})
+                return
+
+            session_context = body.get("session_context")
+            user_id = body.get("user_id")
+            session_id = None
+
+            if session_context and session_context != "none":
+                if session_context == "latest":
+                    sessions = self.storage.list_sessions()
+                    for session in sessions:
+                        if not user_id or session.get("user_id") == user_id:
+                            session_id = session.get("session_id")
+                            break
+                else:
+                    session_id = session_context
+
+            context = build_studyclaw_context(self.storage, session_id) if session_id else None
+            response = generate_placeholder_chat_response(context, message)
+            response["timestamp"] = utc_now_iso()
+            json_response(
+                self,
+                HTTPStatus.OK,
+                {
+                    "response": response,
+                    "agent_ready": True,
+                    "agent_mode": "placeholder",
+                    "context": context,
+                },
+            )
             return
 
         json_response(self, HTTPStatus.NOT_FOUND, {"error": "not found"})

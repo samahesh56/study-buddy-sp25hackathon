@@ -1,4 +1,3 @@
-export const MAX_SEGMENT_MS = 30_000;
 export const QUEUE_FLUSH_THRESHOLD = 20;
 
 export function nowIso(date = new Date()) {
@@ -68,86 +67,14 @@ export function closeInterval(interval, transitionOutReason, endedAt, isPartialS
   };
 }
 
-export function shouldRollover(interval, currentTimeIso, maxSegmentMs = MAX_SEGMENT_MS) {
-  if (!interval) {
-    return false;
-  }
-  const elapsed = new Date(currentTimeIso).getTime() - new Date(interval.interval_start).getTime();
-  return elapsed >= maxSegmentMs;
-}
-
-export function addMsToIso(isoString, msToAdd) {
-  return new Date(new Date(isoString).getTime() + msToAdd).toISOString();
-}
-
-export function splitCounter(total, firstDurationMs, totalDurationMs) {
-  if (!Number.isFinite(total) || total <= 0 || totalDurationMs <= 0) {
-    return [0, Math.max(0, total || 0)];
-  }
-  const ratio = Math.min(1, Math.max(0, firstDurationMs / totalDurationMs));
-  const firstValue = Math.min(total, Math.round(total * ratio));
-  return [firstValue, total - firstValue];
-}
-
-export function splitIntervalForRollover(interval, rolloverAtIso) {
-  const totalDurationMs = Math.max(
-    0,
-    new Date(interval.interval_end).getTime() - new Date(interval.interval_start).getTime()
-  );
-  const firstDurationMs = Math.max(
-    0,
-    new Date(rolloverAtIso).getTime() - new Date(interval.interval_start).getTime()
-  );
-
-  const [firstScroll, remainingScroll] = splitCounter(interval.scroll_count, firstDurationMs, totalDurationMs);
-  const [firstClick, remainingClick] = splitCounter(interval.click_count, firstDurationMs, totalDurationMs);
-  const [firstKeys, remainingKeys] = splitCounter(interval.keystroke_count, firstDurationMs, totalDurationMs);
-
-  const closedSegment = {
+export function applyActivityDelta(interval, delta = {}) {
+  return {
     ...interval,
-    interval_end: rolloverAtIso,
-    duration_ms: firstDurationMs,
-    scroll_count: firstScroll,
-    click_count: firstClick,
-    keystroke_count: firstKeys,
-    transition_out_reason: "segment_rollover",
-    is_partial_segment: false
+    scroll_count: interval.scroll_count + (delta.scroll_count ?? 0),
+    click_count: interval.click_count + (delta.click_count ?? 0),
+    keystroke_count: interval.keystroke_count + (delta.keystroke_count ?? 0),
+    page_visible: delta.page_visible ?? interval.page_visible
   };
-
-  const remainingInterval = {
-    ...interval,
-    event_id: newId("evt"),
-    client_created_at: rolloverAtIso,
-    interval_start: rolloverAtIso,
-    duration_ms: totalDurationMs - firstDurationMs,
-    scroll_count: remainingScroll,
-    click_count: remainingClick,
-    keystroke_count: remainingKeys,
-    transition_in_reason: "segment_rollover",
-    transition_out_reason: "",
-    segment_index: interval.segment_index + 1
-  };
-
-  return { closedSegment, remainingInterval };
-}
-
-export function segmentClosedInterval(interval, maxSegmentMs = MAX_SEGMENT_MS) {
-  const segments = [];
-  let workingInterval = { ...interval };
-
-  while (workingInterval.duration_ms > maxSegmentMs) {
-    const rolloverAtIso = addMsToIso(workingInterval.interval_start, maxSegmentMs);
-    const { closedSegment, remainingInterval } = splitIntervalForRollover(workingInterval, rolloverAtIso);
-    segments.push(closedSegment);
-    workingInterval = {
-      ...remainingInterval,
-      transition_out_reason: interval.transition_out_reason,
-      is_partial_segment: interval.is_partial_segment
-    };
-  }
-
-  segments.push(workingInterval);
-  return segments;
 }
 
 export function buildBatch({ sessionId, userId, sequenceNumber, events, sentAt }) {

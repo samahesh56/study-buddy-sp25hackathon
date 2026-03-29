@@ -1,14 +1,10 @@
 import {
-  addMsToIso,
-  MAX_SEGMENT_MS,
   QUEUE_FLUSH_THRESHOLD,
+  applyActivityDelta,
   buildBatch,
   closeInterval,
   createInterval,
   nowIso,
-  segmentClosedInterval,
-  splitIntervalForRollover,
-  shouldRollover
 } from "./core.js";
 
 const STORAGE_KEYS = {
@@ -26,8 +22,7 @@ const STORAGE_KEYS = {
 
 const ALARMS = {
   sessionSync: "studyclaw-session-sync",
-  flushQueue: "studyclaw-flush-queue",
-  rollover: "studyclaw-rollover"
+  flushQueue: "studyclaw-flush-queue"
 };
 
 async function getState(keys) {
@@ -131,11 +126,13 @@ async function incrementCounters(tabId, delta) {
     return;
   }
 
-  current.scroll_count += delta.scroll_count ?? 0;
-  current.click_count += delta.click_count ?? 0;
-  current.keystroke_count += delta.keystroke_count ?? 0;
-  current.page_visible = delta.page_visible ?? current.page_visible;
-  await setCurrentInterval(current);
+  if (delta.checkpoint_reason) {
+    await checkpointCurrentInterval(delta.checkpoint_reason, delta, tabId);
+    return;
+  }
+
+  const updated = applyActivityDelta(current, delta);
+  await setCurrentInterval(updated);
 }
 
 async function openInterval(reason, tabOverride = null) {
@@ -169,36 +166,44 @@ async function closeCurrentInterval(reason, options = {}) {
   }
 
   const closed = closeInterval(current, reason, nowIso(), Boolean(options.isPartialSegment));
-  const segments = segmentClosedInterval(closed, MAX_SEGMENT_MS);
-  for (const segment of segments) {
-    await appendToQueue(segment);
-  }
+  await appendToQueue(closed);
   await setCurrentInterval(null);
   return closed;
 }
 
-async function rolloverCurrentInterval() {
+async function checkpointCurrentInterval(reason, delta = {}, tabId = null) {
   const current = await getCurrentInterval();
   if (!current) {
     return;
   }
-  const rolloverCheckAt = nowIso();
-  if (!shouldRollover(current, rolloverCheckAt, MAX_SEGMENT_MS)) {
+
+  const activeSession = await getActiveSession();
+  if (!activeSession) {
     return;
   }
 
-  let workingInterval = closeInterval(current, "segment_rollover", rolloverCheckAt, false);
-  while (workingInterval.duration_ms >= MAX_SEGMENT_MS) {
-    const rolloverAtIso = addMsToIso(workingInterval.interval_start, MAX_SEGMENT_MS);
-    const { closedSegment, remainingInterval } = splitIntervalForRollover(workingInterval, rolloverAtIso);
-    await appendToQueue(closedSegment);
-    workingInterval = remainingInterval;
+  const targetTab =
+    (typeof tabId === "number" && (await chrome.tabs.get(tabId).catch(() => null))) ||
+    (current.tab_id && (await chrome.tabs.get(current.tab_id).catch(() => null))) ||
+    (await getActiveTab());
+  if (!targetTab?.id) {
+    return;
   }
 
-  workingInterval.transition_out_reason = "";
-  workingInterval.duration_ms = 0;
-  workingInterval.interval_end = workingInterval.interval_start;
-  await setCurrentInterval(workingInterval);
+  const updatedCurrent = applyActivityDelta(current, delta);
+  const closed = closeInterval(updatedCurrent, reason, nowIso(), false);
+  await appendToQueue(closed);
+
+  const nextInterval = createInterval({
+    sessionId: activeSession.session_id,
+    userId: activeSession.user_id,
+    tab: targetTab,
+    transitionInReason: reason,
+    segmentIndex: updatedCurrent.segment_index + 1,
+    startedAt: closed.interval_end
+  });
+  nextInterval.page_visible = delta.page_visible ?? updatedCurrent.page_visible;
+  await setCurrentInterval(nextInterval);
 }
 
 async function transitionToTab(reason, tabId) {
@@ -488,7 +493,6 @@ chrome.runtime.onInstalled.addListener(async () => {
   await ensureDefaults();
   chrome.alarms.create(ALARMS.sessionSync, { periodInMinutes: 0.5 });
   chrome.alarms.create(ALARMS.flushQueue, { periodInMinutes: 0.5 });
-  chrome.alarms.create(ALARMS.rollover, { periodInMinutes: 0.5 });
   await syncSessionFromBackend();
 });
 
@@ -496,7 +500,6 @@ chrome.runtime.onStartup.addListener(async () => {
   await ensureDefaults();
   chrome.alarms.create(ALARMS.sessionSync, { periodInMinutes: 0.5 });
   chrome.alarms.create(ALARMS.flushQueue, { periodInMinutes: 0.5 });
-  chrome.alarms.create(ALARMS.rollover, { periodInMinutes: 0.5 });
   await syncSessionFromBackend();
   await flushQueue();
 });
@@ -506,8 +509,6 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     await syncSessionFromBackend();
   } else if (alarm.name === ALARMS.flushQueue) {
     await flushQueue();
-  } else if (alarm.name === ALARMS.rollover) {
-    await rolloverCurrentInterval();
   }
 });
 

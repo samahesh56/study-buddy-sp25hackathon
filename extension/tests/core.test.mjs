@@ -1,13 +1,11 @@
 import assert from "node:assert/strict";
 
 import {
+  applyActivityDelta,
   buildBatch,
   closeInterval,
   createInterval,
-  deriveDomain,
-  segmentClosedInterval,
-  shouldRollover,
-  splitIntervalForRollover
+  deriveDomain
 } from "../core.js";
 
 function run() {
@@ -22,50 +20,41 @@ function run() {
     segmentIndex: 0,
     startedAt: "2026-03-28T20:00:00.000Z"
   });
-  const closed = closeInterval(interval, "segment_rollover", "2026-03-28T20:00:30.000Z");
-  assert.equal(closed.duration_ms, 30000);
-  assert.equal(closed.transition_out_reason, "segment_rollover");
 
-  assert.equal(shouldRollover(interval, "2026-03-28T20:00:29.999Z", 30000), false);
-  assert.equal(shouldRollover(interval, "2026-03-28T20:00:30.000Z", 30000), true);
+  const withClick = applyActivityDelta(interval, {
+    click_count: 1,
+    page_visible: true
+  });
+  assert.equal(withClick.click_count, 1);
+  assert.equal(withClick.scroll_count, 0);
+  assert.equal(withClick.page_visible, true);
+
+  const withScrollBurst = applyActivityDelta(withClick, {
+    scroll_count: 7,
+    keystroke_count: 2
+  });
+  assert.equal(withScrollBurst.click_count, 1);
+  assert.equal(withScrollBurst.scroll_count, 7);
+  assert.equal(withScrollBurst.keystroke_count, 2);
+
+  const closed = closeInterval(withScrollBurst, "click_activity", "2026-03-28T20:02:00.000Z");
+  assert.equal(closed.duration_ms, 120000);
+  assert.equal(closed.transition_out_reason, "click_activity");
+  assert.equal(closed.click_count, 1);
+  assert.equal(closed.scroll_count, 7);
+  assert.equal(closed.keystroke_count, 2);
 
   const batch = buildBatch({
     sessionId: "sess_1",
     userId: "ryan",
     sequenceNumber: 4,
-    events: [{ event_id: "evt_1" }],
+    events: [closed],
     sentAt: "2026-03-28T20:14:35.500Z"
   });
   assert.equal(batch.session_id, "sess_1");
   assert.equal(batch.sequence_number, 4);
   assert.equal(batch.events.length, 1);
-
-  const overshot = closeInterval(interval, "segment_rollover", "2026-03-28T20:00:53.670Z");
-  overshot.scroll_count = 12;
-  overshot.click_count = 4;
-  overshot.keystroke_count = 10;
-  const { closedSegment, remainingInterval } = splitIntervalForRollover(overshot, "2026-03-28T20:00:30.000Z");
-  assert.equal(closedSegment.duration_ms, 30000);
-  assert.equal(remainingInterval.interval_start, "2026-03-28T20:00:30.000Z");
-  assert.equal(closedSegment.scroll_count + remainingInterval.scroll_count, 12);
-  assert.equal(closedSegment.click_count + remainingInterval.click_count, 4);
-  assert.equal(closedSegment.keystroke_count + remainingInterval.keystroke_count, 10);
-
-  const overshotOnTabSwitch = closeInterval(interval, "tab_deactivated", "2026-03-28T20:01:07.000Z");
-  overshotOnTabSwitch.scroll_count = 21;
-  overshotOnTabSwitch.click_count = 5;
-  overshotOnTabSwitch.keystroke_count = 9;
-  const segmented = segmentClosedInterval(overshotOnTabSwitch, 30000);
-  assert.equal(segmented.length, 3);
-  assert.equal(segmented[0].duration_ms, 30000);
-  assert.equal(segmented[0].transition_out_reason, "segment_rollover");
-  assert.equal(segmented[1].duration_ms, 30000);
-  assert.equal(segmented[1].transition_out_reason, "segment_rollover");
-  assert.equal(segmented[2].duration_ms, 7000);
-  assert.equal(segmented[2].transition_out_reason, "tab_deactivated");
-  assert.equal(segmented.reduce((sum, item) => sum + item.scroll_count, 0), 21);
-  assert.equal(segmented.reduce((sum, item) => sum + item.click_count, 0), 5);
-  assert.equal(segmented.reduce((sum, item) => sum + item.keystroke_count, 0), 9);
+  assert.equal(batch.events[0].transition_out_reason, "click_activity");
 
   console.log("extension core tests passed");
 }

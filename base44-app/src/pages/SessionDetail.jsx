@@ -1,17 +1,15 @@
-import { useState, useEffect } from "react";
-import { useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, Clock, Calendar } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { ArrowLeft, Calendar, Clock } from "lucide-react";
+import moment from "moment";
 import { Button } from "@/components/ui/button";
 import { SessionAPI } from "@/lib/api";
-import MetricGrid from "@/components/detail/MetricGrid";
-import DomainList from "@/components/detail/DomainList";
-import Timeline from "@/components/detail/Timeline";
-import CoachingReport from "@/components/detail/CoachingReport";
-import moment from "moment";
+import SessionOverviewCards from "@/components/detail/SessionOverviewCards";
+import SessionGraphPanel from "@/components/detail/SessionGraphPanel";
+import StudyClawChatPanel from "@/components/chat/StudyClawChatPanel";
 
 export default function SessionDetail() {
     const navigate = useNavigate();
-    const urlParams = new URLSearchParams(window.location.search);
     const pathParts = window.location.pathname.split("/");
     const sessionId = pathParts[pathParts.length - 1];
 
@@ -23,9 +21,9 @@ export default function SessionDetail() {
         Promise.all([
             SessionAPI.getSession(sessionId),
             SessionAPI.getSessionSummary(sessionId),
-        ]).then(([sess, sum]) => {
-            setSession(sess);
-            setSummary(sum);
+        ]).then(([sessionData, summaryData]) => {
+            setSession(sessionData);
+            setSummary(summaryData);
             setLoading(false);
         });
     }, [sessionId]);
@@ -42,17 +40,17 @@ export default function SessionDetail() {
         return (
             <div className="px-6 md:px-10 py-8 text-center">
                 <p className="text-muted-foreground">Session not found.</p>
-                <Button onClick={() => navigate("/history")} variant="outline" className="mt-4">Back to History</Button>
+                <Button onClick={() => navigate("/history")} variant="outline" className="mt-4">
+                    Back to History
+                </Button>
             </div>
         );
     }
 
-    const focusColor = summary.focus_score >= 80 ? "text-emerald-600" :
-        summary.focus_score >= 60 ? "text-amber-600" : "text-red-500";
+    const graphImageUrl = summary.graph_image_url || summary.graph_png_url || summary.graph_image_src || null;
 
     return (
-        <div className="px-6 md:px-10 py-8 max-w-5xl mx-auto">
-            {/* Header */}
+        <div className="px-6 md:px-10 py-8 max-w-6xl mx-auto">
             <div className="mb-8">
                 <button
                     onClick={() => navigate("/history")}
@@ -61,81 +59,56 @@ export default function SessionDetail() {
                     <ArrowLeft className="w-4 h-4" /> Back to History
                 </button>
 
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
                     <div>
                         <h1 className="text-2xl font-semibold text-foreground tracking-tight mb-1">
-                            {session.course}
+                            {session.course || "Study Session"}
                         </h1>
-                        <p className="text-sm text-muted-foreground">{session.assignment}</p>
+                        <p className="text-sm text-muted-foreground">
+                            Post-session review and coaching workspace
+                        </p>
                     </div>
-                    <div className="flex items-center gap-4">
-                        <div className="text-right">
-                            <div className={`text-3xl font-bold ${focusColor}`}>{summary.focus_score}</div>
-                            <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Focus Score</div>
-                        </div>
-                    </div>
-                </div>
 
-                {/* Session Meta */}
-                <div className="flex flex-wrap items-center gap-4 mt-4 text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1.5">
-                        <Calendar className="w-3.5 h-3.5" />
-                        {moment(session.started_at).format("MMMM D, YYYY · h:mm A")}
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                        <Clock className="w-3.5 h-3.5" />
-                        {summary.actual_duration_minutes}m of {summary.planned_duration_minutes}m planned
-                    </span>
-                    <span className="font-mono text-muted-foreground/50">{session.session_id}</span>
+                    <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1.5">
+                            <Calendar className="w-3.5 h-3.5" />
+                            {moment(session.started_at).format("MMMM D, YYYY · h:mm A")}
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                            <Clock className="w-3.5 h-3.5" />
+                            {summary.actual_duration_minutes}m of {summary.planned_duration_minutes}m planned
+                        </span>
+                    </div>
                 </div>
             </div>
 
-            {/* Metrics */}
-            <div className="mb-8">
-                <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">Session Metrics</h2>
-                <MetricGrid summary={summary} />
-            </div>
+            <div className="space-y-8">
+                <section>
+                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
+                        Session Overview
+                    </div>
+                    <SessionOverviewCards summary={summary} />
+                </section>
 
-            {/* Attention */}
-            <div className="grid md:grid-cols-3 gap-3 mb-8">
-                <AttentionCard label="Screen Attention" value={`${Math.round(summary.screen_attention_ratio * 100)}%`} />
-                <AttentionCard label="Face Present" value={`${Math.round(summary.face_present_ratio * 100)}%`} />
-                <AttentionCard label="Relevant → Irrelevant" value={`${summary.relevant_to_irrelevant_switch_count} switches`} />
-            </div>
+                <section>
+                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
+                        Analytics Graph
+                    </div>
+                    <SessionGraphPanel imageUrl={graphImageUrl} />
+                </section>
 
-            {/* Domains */}
-            <div className="grid md:grid-cols-2 gap-4 mb-8">
-                <DomainList title="Top Relevant Domains" domains={summary.top_relevant_domains} variant="relevant" />
-                <DomainList title="Top Distraction Domains" domains={summary.top_distraction_domains} variant="distraction" />
+                <section>
+                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
+                        OpenClaw Chat
+                    </div>
+                    <StudyClawChatPanel
+                        initialContext={session.session_id}
+                        fixedContext
+                        title="OpenClaw Session Chat"
+                        subtitle="Discuss this completed session with your study coach"
+                    />
+                </section>
             </div>
-
-            {/* Timeline */}
-            <div className="mb-8">
-                <Timeline highlights={summary.timeline_highlights} />
-            </div>
-
-            {/* Coaching Report */}
-            <div className="mb-8">
-                <CoachingReport report={summary.coaching_report} observations={summary.system_observations} />
-            </div>
-
-            {/* CTA */}
-            <div className="text-center py-6">
-                <Link to={`/chat`}>
-                    <Button variant="outline" className="gap-2">
-                        Discuss this session with StudyClaw →
-                    </Button>
-                </Link>
-            </div>
-        </div>
-    );
-}
-
-function AttentionCard({ label, value }) {
-    return (
-        <div className="bg-card border border-border rounded-xl p-4">
-            <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">{label}</div>
-            <div className="text-lg font-semibold text-foreground">{value}</div>
         </div>
     );
 }

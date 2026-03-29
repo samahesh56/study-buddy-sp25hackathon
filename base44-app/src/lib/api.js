@@ -102,6 +102,11 @@ export const SessionAPI = {
     async getSessionIntervals(sessionId) {
         return request(`/sessions/${sessionId}/intervals`);
     },
+
+    async getStudyClawContext(sessionId) {
+        const data = await request(`/sessions/${sessionId}/studyclaw-context`);
+        return data.context;
+    },
 };
 
 export const SystemAPI = {
@@ -122,13 +127,15 @@ export const CanvasAPI = {
 };
 
 export const ChatAPI = {
-    async sendMessage() {
-        await new Promise((resolve) => setTimeout(resolve, 800));
-        return {
-            role: "assistant",
-            content:
-                "OpenClaw is not wired yet in this local app shell. The StudyClaw chat UI is in place, but this response is still a placeholder until the coaching backend is connected.",
-            timestamp: new Date().toISOString(),
-        };
+    async sendMessage({ message, session_context = "latest", user_id = "ryan" }) {
+        const data = await request("/chat/studyclaw", {
+            method: "POST",
+            body: JSON.stringify({
+                message,
+                session_context,
+                user_id,
+            }),
+        });
+        return data.response;
     },
 };

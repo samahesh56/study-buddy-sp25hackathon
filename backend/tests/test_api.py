@@ -151,6 +151,25 @@ class BackendApiTests(unittest.TestCase):
         self.assertEqual(session_summary["summary"]["interval_count"], 1)
         self.assertEqual(session_summary["summary"]["total_duration_ms"], 30000)
 
+        status, studylcaw_context = self.request("GET", f"/sessions/{session_id}/studyclaw-context")
+        self.assertEqual(status, 200)
+        self.assertEqual(studylcaw_context["context"]["session_id"], session_id)
+        self.assertEqual(studylcaw_context["context"]["agent_ready"], True)
+
+        status, chat_response = self.request(
+            "POST",
+            "/chat/studyclaw",
+            {
+                "message": "How did this session go?",
+                "session_context": session_id,
+                "user_id": "ryan",
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(chat_response["agent_ready"], True)
+        self.assertEqual(chat_response["response"]["role"], "assistant")
+        self.assertIn("handoff contract is ready", chat_response["response"]["content"])
+
         status, imported_courses = self.request(
             "POST",
             "/integrations/canvas/courses/import",

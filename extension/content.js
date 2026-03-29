@@ -1,49 +1,86 @@
-let scrollCount = 0;
-let clickCount = 0;
-let keystrokeCount = 0;
+let pendingScrollCount = 0;
+let scrollFlushTimeout = null;
 
-function sendActivity() {
-  if (scrollCount === 0 && clickCount === 0 && keystrokeCount === 0 && document.visibilityState === "visible") {
-    return;
-  }
-
+function sendActivity(payload) {
   chrome.runtime.sendMessage(
     {
       type: "content-activity",
-      payload: {
-        scroll_count: scrollCount,
-        click_count: clickCount,
-        keystroke_count: keystrokeCount,
-        page_visible: document.visibilityState === "visible"
-      }
+      payload
     },
     () => chrome.runtime.lastError
   );
+}
 
-  scrollCount = 0;
-  clickCount = 0;
-  keystrokeCount = 0;
+function flushScrollActivity() {
+  if (pendingScrollCount === 0) {
+    return;
+  }
+
+  sendActivity({
+    scroll_count: pendingScrollCount,
+    click_count: 0,
+    keystroke_count: 0,
+    page_visible: document.visibilityState === "visible",
+    checkpoint_reason: "scroll_activity"
+  });
+
+  pendingScrollCount = 0;
+  scrollFlushTimeout = null;
 }
 
 window.addEventListener(
   "scroll",
   () => {
-    scrollCount += 1;
+    pendingScrollCount += 1;
+    if (scrollFlushTimeout) {
+      clearTimeout(scrollFlushTimeout);
+    }
+    scrollFlushTimeout = setTimeout(flushScrollActivity, 750);
   },
   { passive: true }
 );
 
 window.addEventListener("click", () => {
-  clickCount += 1;
+  sendActivity({
+    scroll_count: 0,
+    click_count: 1,
+    keystroke_count: 0,
+    page_visible: document.visibilityState === "visible",
+    checkpoint_reason: "click_activity"
+  });
 });
 
 window.addEventListener("keydown", () => {
-  keystrokeCount += 1;
+  sendActivity({
+    scroll_count: 0,
+    click_count: 0,
+    keystroke_count: 1,
+    page_visible: document.visibilityState === "visible",
+    checkpoint_reason: "keystroke_activity"
+  });
 });
 
-document.addEventListener("visibilitychange", sendActivity);
-window.addEventListener("beforeunload", sendActivity);
-setInterval(sendActivity, 5000);
+document.addEventListener("visibilitychange", () => {
+  flushScrollActivity();
+  sendActivity({
+    scroll_count: 0,
+    click_count: 0,
+    keystroke_count: 0,
+    page_visible: document.visibilityState === "visible",
+    checkpoint_reason: document.visibilityState === "visible" ? "page_visible" : "page_hidden"
+  });
+});
+
+window.addEventListener("beforeunload", () => {
+  flushScrollActivity();
+  sendActivity({
+    scroll_count: 0,
+    click_count: 0,
+    keystroke_count: 0,
+    page_visible: document.visibilityState === "visible",
+    checkpoint_reason: "page_unload"
+  });
+});
 
 async function fetchCanvasCourses() {
   if (!window.location.hostname.endsWith("instructure.com")) {
