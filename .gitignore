@@ -1,7 +1,6 @@
 __pycache__/
 *.pyc
 backend/data/
-
 # Computer Vision module
 venv/
 .venv/
@@ -11,3 +10,5 @@ ComputerVision/__pycache__/
 *.pyc
 *.py[cod]
 *.class
+supabase-lab/.env.local
+supabase-lab/output/

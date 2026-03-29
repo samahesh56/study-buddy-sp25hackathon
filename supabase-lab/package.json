@@ -1,0 +1,9 @@
+{
+  "name": "supabase-lab",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:connection": "node scripts/test-connection.mjs",
+    "inspect": "node scripts/inspect-tables.mjs"
+  }
+}
