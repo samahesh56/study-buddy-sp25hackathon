@@ -114,6 +114,13 @@ export const SystemAPI = {
     },
 };
 
+export const CanvasAPI = {
+    async listCourses(userId = "ryan") {
+        const data = await request(`/integrations/canvas/courses?user_id=${encodeURIComponent(userId)}`);
+        return data.courses || [];
+    },
+};
+
 export const ChatAPI = {
     async sendMessage() {
         await new Promise((resolve) => setTimeout(resolve, 800));
