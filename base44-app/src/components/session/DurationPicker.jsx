@@ -2,7 +2,7 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 
-const PRESETS = [25, 45, 60, 90];
+const PRESETS = [5, 25, 45, 60];
 
 export default function DurationPicker({ value, onChange }) {
     const [isCustom, setIsCustom] = useState(!PRESETS.includes(value));

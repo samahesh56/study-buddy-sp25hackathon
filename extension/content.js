@@ -50,6 +50,14 @@ async function fetchCanvasCourses() {
     throw new Error("Canvas import must run from a Canvas tab.");
   }
 
+  const domCourses = extractVisibleCanvasCourses();
+  if (domCourses.length > 0) {
+    return {
+      canvas_instance_domain: window.location.hostname,
+      courses: domCourses
+    };
+  }
+
   const response = await fetch("/api/v1/users/self/favorites/courses?per_page=100&include[]=term", {
     method: "GET",
     credentials: "include",
@@ -89,6 +97,89 @@ async function fetchCanvasCourses() {
   };
 }
 
+function extractVisibleCanvasCourses() {
+  const selectors = [
+    "a.ic-DashboardCard__link[href*='/courses/']",
+    ".ic-DashboardCard__header a[href*='/courses/']",
+    "tr.course-list-table-row a[href*='/courses/']",
+    ".course-list-table-row .course-list-course-title a[href*='/courses/']",
+    ".course-list-favorite .name[href*='/courses/']"
+  ];
+
+  const links = selectors.flatMap((selector) => Array.from(document.querySelectorAll(selector)));
+  const uniqueLinks = [];
+  const seenLinks = new Set();
+  for (const link of links) {
+    const href = link.getAttribute("href") || "";
+    if (!href.includes("/courses/")) {
+      continue;
+    }
+
+    let normalizedHref = href;
+    try {
+      normalizedHref = new URL(href, window.location.origin).pathname;
+    } catch {
+      normalizedHref = href;
+    }
+
+    if (!/^\/courses\/\d+\/?$/.test(normalizedHref)) {
+      continue;
+    }
+
+    if (!seenLinks.has(normalizedHref)) {
+      seenLinks.add(normalizedHref);
+      seenLinks.add(href);
+      uniqueLinks.push(link);
+    }
+  }
+
+  const courses = uniqueLinks
+    .map((link) => {
+      const href = link.getAttribute("href") || "";
+      const match = href.match(/\/courses\/(\d+)/);
+      const externalCourseId = match?.[1];
+      const titleCandidate =
+        link.getAttribute("aria-label") ||
+        link.getAttribute("title") ||
+        link.querySelector(".ic-DashboardCard__header-title")?.textContent ||
+        link.querySelector(".name")?.textContent ||
+        link.textContent;
+
+      const name = normalizeVisibleCourseName(titleCandidate || "");
+      if (!externalCourseId || !name) {
+        return null;
+      }
+
+      return {
+        external_course_id: externalCourseId,
+        name,
+        course_code: name,
+        term_name: null,
+        workflow_state: "visible"
+      };
+    })
+    .filter(Boolean);
+
+  const deduped = [];
+  const seen = new Set();
+  for (const course of courses) {
+    const key = `${course.external_course_id}:${course.name}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      deduped.push(course);
+    }
+  }
+
+  return deduped;
+}
+
+function normalizeVisibleCourseName(value) {
+  const name = value.replace(/\s+/g, " ").trim();
+  return name
+    .replace(/^(Announcements|Discussions|Assignments|Modules|Grades|Pages|Syllabus)\s*-\s*/i, "")
+    .trim();
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "background:canvas:get-courses") {
     fetchCanvasCourses()
@@ -98,4 +189,53 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   return false;
+});
+
+window.addEventListener("message", (event) => {
+  if (event.source !== window) return;
+  const data = event.data;
+  if (!data || data.source !== "studyclaw-app" || !data.type || !data.requestId) return;
+
+  const messageMap = {
+    "app:start-session-control": "app:start-session-control",
+    "app:stop-session-control": "app:stop-session-control",
+    "app:import-canvas-courses": "app:import-canvas-courses",
+    "app:get-extension-state": "app:get-extension-state"
+  };
+
+  const targetType = messageMap[data.type];
+  if (!targetType) return;
+
+  chrome.runtime.sendMessage(
+    {
+      type: targetType,
+      payload: data.payload || {}
+    },
+    (response) => {
+      const runtimeError = chrome.runtime.lastError;
+      if (runtimeError) {
+        window.postMessage(
+          {
+            source: "studyclaw-extension",
+            requestId: data.requestId,
+            ok: false,
+            error: runtimeError.message
+          },
+          "*"
+        );
+        return;
+      }
+
+      window.postMessage(
+        {
+          source: "studyclaw-extension",
+          requestId: data.requestId,
+          ok: Boolean(response?.ok),
+          payload: response,
+          error: response?.error || null
+        },
+        "*"
+      );
+    }
+  );
 });

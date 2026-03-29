@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Square, BookOpen, FileText, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SessionAPI } from "@/lib/api";
+import { callExtension } from "@/lib/extension-bridge";
 import TelemetryStatus from "@/components/session/TelemetryStatus";
 
 export default function ActiveSession() {
@@ -30,6 +31,11 @@ export default function ActiveSession() {
     const handleStop = async () => {
         if (!session) return;
         setStopping(true);
+        try {
+            await callExtension("app:stop-session-control", { sessionId: session.session_id });
+        } catch (error) {
+            console.error("Failed to notify extension to stop capture", error);
+        }
         await SessionAPI.stopSession(session.session_id);
         sessionStorage.removeItem("studyclaw_active_session");
         navigate(`/history/${session.session_id}`);

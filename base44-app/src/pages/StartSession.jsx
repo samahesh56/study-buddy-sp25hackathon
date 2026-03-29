@@ -4,6 +4,7 @@ import { Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CanvasAPI, SessionAPI } from "@/lib/api";
+import { callExtension } from "@/lib/extension-bridge";
 import DurationPicker from "@/components/session/DurationPicker";
 
 export default function StartSession() {
@@ -13,19 +14,22 @@ export default function StartSession() {
     const [starting, setStarting] = useState(false);
     const [courses, setCourses] = useState([]);
     const [loadingCourses, setLoadingCourses] = useState(true);
+    const [importingCourses, setImportingCourses] = useState(false);
+
+    const loadCourses = async () => {
+        setLoadingCourses(true);
+        try {
+            const importedCourses = await CanvasAPI.listCourses("ryan");
+            setCourses(importedCourses);
+        } catch (error) {
+            console.error("Failed to load Canvas courses", error);
+            setCourses([]);
+        } finally {
+            setLoadingCourses(false);
+        }
+    };
 
     useEffect(() => {
-        const loadCourses = async () => {
-            try {
-                const importedCourses = await CanvasAPI.listCourses("ryan");
-                setCourses(importedCourses);
-            } catch (error) {
-                console.error("Failed to load Canvas courses", error);
-            } finally {
-                setLoadingCourses(false);
-            }
-        };
-
         loadCourses();
     }, []);
 
@@ -41,6 +45,12 @@ export default function StartSession() {
             planned_duration_minutes: duration,
         });
 
+        try {
+            await callExtension("app:start-session-control", { session });
+        } catch (error) {
+            console.error("Failed to notify extension to start capture", error);
+        }
+
         // Store active session in sessionStorage for the active session page
         sessionStorage.setItem("studyclaw_active_session", JSON.stringify({
             ...session,
@@ -48,6 +58,19 @@ export default function StartSession() {
         }));
 
         navigate("/session/active");
+    };
+
+    const handleImportCourses = async () => {
+        setImportingCourses(true);
+        try {
+            await callExtension("app:import-canvas-courses", { userId: "ryan" }, 15000);
+            await loadCourses();
+        } catch (error) {
+            console.error("Failed to import Canvas courses from extension", error);
+            alert(error.message);
+        } finally {
+            setImportingCourses(false);
+        }
     };
 
     return (
@@ -90,7 +113,7 @@ export default function StartSession() {
 
                     {!loadingCourses && courses.length === 0 && (
                         <p className="text-xs text-muted-foreground mt-2">
-                            Open the extension popup, click `Import Canvas Courses`, then return here.
+                            Import your Canvas courses to populate this dropdown.
                         </p>
                     )}
 
@@ -98,6 +121,18 @@ export default function StartSession() {
                         <p className="text-xs text-muted-foreground mt-2">
                             Loaded {courses.length} cached Canvas course{courses.length === 1 ? "" : "s"} from the backend.
                         </p>
+                    )}
+
+                    {!loadingCourses && courses.length === 0 && (
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={handleImportCourses}
+                            disabled={importingCourses}
+                            className="mt-3"
+                        >
+                            {importingCourses ? "Importing..." : "Import Canvas Courses"}
+                        </Button>
                     )}
                 </div>
 

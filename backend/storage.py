@@ -411,6 +411,12 @@ class Storage:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def clear_canvas_courses(self, user_id: str) -> int:
+        with self._lock, self._connect() as conn:
+            cursor = conn.execute("DELETE FROM canvas_courses WHERE user_id = ?", (user_id,))
+            conn.commit()
+        return cursor.rowcount
+
 
 def normalize_domain(raw_value: str | None) -> str | None:
     if not raw_value:

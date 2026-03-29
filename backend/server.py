@@ -1,3 +1,5 @@
+import csv
+import io
 import json
 import os
 import sys
@@ -14,6 +16,36 @@ from backend.storage import Storage
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_DB_PATH = ROOT / "data" / "studyclaw.sqlite3"
+INTERVAL_CSV_COLUMNS = (
+    "event_id",
+    "batch_id",
+    "session_id",
+    "user_id",
+    "event_type",
+    "client_created_at",
+    "interval_start",
+    "interval_end",
+    "duration_ms",
+    "tab_id",
+    "window_id",
+    "tab_url",
+    "tab_domain",
+    "normalized_domain",
+    "tab_title",
+    "is_browser_focused",
+    "is_tab_active",
+    "page_visible",
+    "scroll_count",
+    "click_count",
+    "keystroke_count",
+    "transition_in_reason",
+    "transition_out_reason",
+    "segment_index",
+    "is_partial_segment",
+    "extension_version",
+    "collector_id",
+    "server_received_at",
+)
 
 
 def utc_now_iso() -> str:
@@ -29,6 +61,31 @@ def json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict[st
     body = json.dumps(payload).encode("utf-8")
     handler.send_response(status)
     handler.send_header("Content-Type", "application/json")
+    handler.send_header("Content-Length", str(len(body)))
+    handler.send_header("Access-Control-Allow-Origin", "*")
+    handler.send_header("Access-Control-Allow-Headers", "Content-Type")
+    handler.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
+def csv_response(
+    handler: BaseHTTPRequestHandler,
+    status: int,
+    rows: list[dict[str, Any]],
+    fieldnames: tuple[str, ...],
+    filename: str,
+) -> None:
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({field: row.get(field, "") for field in fieldnames})
+
+    body = buffer.getvalue().encode("utf-8")
+    handler.send_response(status)
+    handler.send_header("Content-Type", "text/csv; charset=utf-8")
+    handler.send_header("Content-Disposition", f'attachment; filename="{filename}"')
     handler.send_header("Content-Length", str(len(body)))
     handler.send_header("Access-Control-Allow-Origin", "*")
     handler.send_header("Access-Control-Allow-Headers", "Content-Type")
@@ -134,11 +191,21 @@ class StudyClawHandler(BaseHTTPRequestHandler):
                 json_response(self, HTTPStatus.OK, {"session": session})
                 return
 
-            if len(path_parts) == 3 and path_parts[2] == "intervals":
+            if len(path_parts) == 3 and path_parts[2] in {"intervals", "intervals.csv"}:
                 query = parse_qs(parsed.query)
                 limit_raw = query.get("limit", [None])[0]
                 limit = int(limit_raw) if limit_raw and limit_raw.isdigit() else None
                 intervals = self.storage.list_session_intervals(session_id, limit=limit)
+                wants_csv = path_parts[2] == "intervals.csv" or query.get("format", [None])[0] == "csv"
+                if wants_csv:
+                    csv_response(
+                        self,
+                        HTTPStatus.OK,
+                        intervals,
+                        INTERVAL_CSV_COLUMNS,
+                        f"{session_id}-browser-intervals.csv",
+                    )
+                    return
                 json_response(
                     self,
                     HTTPStatus.OK,
@@ -257,6 +324,16 @@ class StudyClawHandler(BaseHTTPRequestHandler):
                     "courses": self.storage.list_canvas_courses(body["user_id"]),
                 },
             )
+            return
+
+        if parsed.path == "/integrations/canvas/courses/clear":
+            body = load_json_body(self)
+            user_id = body.get("user_id")
+            if not user_id:
+                json_response(self, HTTPStatus.BAD_REQUEST, {"error": "missing field: user_id"})
+                return
+            deleted = self.storage.clear_canvas_courses(user_id)
+            json_response(self, HTTPStatus.OK, {"cleared": True, "deleted_count": deleted})
             return
 
         json_response(self, HTTPStatus.NOT_FOUND, {"error": "not found"})

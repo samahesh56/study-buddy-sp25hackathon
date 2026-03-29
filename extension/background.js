@@ -441,6 +441,20 @@ async function startSession(userId) {
   await openInterval("session_started");
 }
 
+async function startSessionControl(session) {
+  const currentSession = await getActiveSession();
+  if (currentSession?.session_id && currentSession.session_id !== session.session_id) {
+    await closeCurrentInterval("session_stopped", { isPartialSegment: true });
+    await flushQueue();
+  }
+
+  await setActiveSession(session);
+  const currentInterval = await getCurrentInterval();
+  if (!currentInterval) {
+    await openInterval("session_started");
+  }
+}
+
 async function stopSession() {
   const session = await getActiveSession();
   if (!session) {
@@ -454,6 +468,18 @@ async function stopSession() {
     method: "POST",
     body: JSON.stringify({})
   });
+  await setActiveSession(null);
+  await clearLastError();
+}
+
+async function stopSessionControl(sessionId) {
+  const currentSession = await getActiveSession();
+  if (!currentSession || (sessionId && currentSession.session_id !== sessionId)) {
+    return;
+  }
+
+  await closeCurrentInterval("session_stopped", { isPartialSegment: true });
+  await flushQueue();
   await setActiveSession(null);
   await clearLastError();
 }
@@ -539,8 +565,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "app:get-extension-state") {
+    Promise.all([getState(Object.values(STORAGE_KEYS)), getCanvasCache()]).then(([state, canvasCache]) => {
+      sendResponse({
+        ok: true,
+        activeSession: state[STORAGE_KEYS.activeSession] ?? null,
+        currentInterval: state[STORAGE_KEYS.currentInterval] ?? null,
+        queuedEventCount: (state[STORAGE_KEYS.queuedEvents] ?? []).length,
+        canvasCoursesCache: canvasCache.courses,
+        canvasLastImport: canvasCache.lastImport,
+        canvasLastDomain: canvasCache.lastDomain
+      });
+    });
+    return true;
+  }
+
   if (message?.type === "popup:import-canvas-courses") {
     importCanvasCourses(message.userId)
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
+  if (message?.type === "app:import-canvas-courses") {
+    importCanvasCourses(message.payload?.userId)
       .then((result) => sendResponse({ ok: true, ...result }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
@@ -558,8 +606,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "app:start-session-control") {
+    startSessionControl(message.payload?.session)
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
   if (message?.type === "popup:stop-session") {
     stopSession()
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
+  if (message?.type === "app:stop-session-control") {
+    stopSessionControl(message.payload?.sessionId)
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;

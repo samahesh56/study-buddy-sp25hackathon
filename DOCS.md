@@ -39,6 +39,7 @@ The current system has two runtime pieces.
 - enforces exact 30-second segmentation on all close paths
 - queues closed intervals locally
 - uploads telemetry batches to the backend
+- accepts app-triggered control messages from the StudyClaw app page
 
 ## Project Layout
 
@@ -47,6 +48,7 @@ The current system has two runtime pieces.
 - [README.md](C:/Users/ryanf/coding/hackpsu/README.md)
 - [DOCS.md](C:/Users/ryanf/coding/hackpsu/DOCS.md)
 - [raw-data.example.json](C:/Users/ryanf/coding/hackpsu/raw-data.example.json)
+- [raw-data.example.csv](C:/Users/ryanf/coding/hackpsu/raw-data.example.csv)
 
 Important files:
 
@@ -70,6 +72,7 @@ The backend currently exposes these routes:
 - `GET /sessions?session_id=...`
 - `GET /sessions/{id}`
 - `GET /sessions/{id}/intervals`
+- `GET /sessions/{id}/intervals.csv`
 - `GET /sessions/{id}/summary`
 - `POST /sessions/{id}/stop`
 - `POST /telemetry/browser-batch`
@@ -183,7 +186,7 @@ The extension now supports importing Canvas courses from the user's existing log
 Current behavior:
 
 - user opens the extension popup
-- user clicks `Import Canvas Courses`
+- user can click `Import Canvas Courses` either from the extension popup or directly from the StudyClaw app
 - the extension looks for an open Canvas tab on `*.instructure.com`
 - if one is found, the content script requests the Canvas course API from that authenticated Canvas tab context
 - the extension normalizes the returned courses
@@ -196,6 +199,17 @@ Current constraints:
 - user must already be logged into Canvas in Chrome
 - if no Canvas tab is open and there is no previously cached Canvas domain, import will fail until the user opens Canvas once
 - this is an MVP import flow, not a formal Canvas OAuth integration
+
+## App-Controlled Extension Behavior
+
+The StudyClaw app can now control the extension automatically through the content script running on the app page.
+
+Current behavior:
+
+- when the user starts a session in the app, the app notifies the extension to begin capture immediately
+- when the user ends a session in the app, the app notifies the extension to stop capture and flush data
+- the user does not need to open the extension popup to start or stop capture
+- the same control path can later be reused by camera-based automation to end sessions programmatically
 
 ## Raw Event Shape
 
@@ -357,6 +371,18 @@ For a clean single-session artifact, prefer:
 http://127.0.0.1:8000/sessions/{session_id}/intervals
 ```
 
+For CSV export of raw browser interval rows, use either:
+
+```text
+http://127.0.0.1:8000/sessions/{session_id}/intervals.csv
+```
+
+or:
+
+```text
+http://127.0.0.1:8000/sessions/{session_id}/intervals?format=csv
+```
+
 For a compact per-session rollup, use:
 
 ```text
@@ -376,6 +402,7 @@ The current system is working if all of these are true:
 - stored titles and domains roughly match what you visited
 - interaction counters are non-zero on pages where you interacted
 - `/sessions/{id}/intervals` returns only the intervals for the chosen session
+- `/sessions/{id}/intervals.csv` downloads the same raw browser interval rows as CSV
 
 ## Troubleshooting
 
@@ -465,9 +492,16 @@ What is still not implemented:
 
 ## Team Handoff Artifact
 
-Use [raw-data.example.json](C:/Users/ryanf/coding/hackpsu/raw-data.example.json) when sharing the Phase 1 raw telemetry schema with the team.
+Use [raw-data.example.csv](C:/Users/ryanf/coding/hackpsu/raw-data.example.csv) when sharing the Phase 1 raw browser telemetry export format with the team.
 
-It contains:
+Use [raw-data.example.json](C:/Users/ryanf/coding/hackpsu/raw-data.example.json) when sharing the full batch schema and field descriptions.
+
+The CSV file contains:
+
+- one header row matching the exported browser interval columns
+- sample raw browser interval rows in the same shape returned by the CSV export route
+
+The JSON file contains:
 
 - a valid example batch payload
 - sample interval records

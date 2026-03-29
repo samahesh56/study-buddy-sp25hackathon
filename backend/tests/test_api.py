@@ -42,6 +42,14 @@ class BackendApiTests(unittest.TestCase):
         except urllib.error.HTTPError as exc:
             return exc.code, json.loads(exc.read().decode("utf-8"))
 
+    def request_text(self, method: str, path: str) -> tuple[int, str, dict]:
+        request = urllib.request.Request(
+            url=f"http://127.0.0.1:{self.port}{path}",
+            method=method,
+        )
+        with urllib.request.urlopen(request) as response:
+            return response.status, response.read().decode("utf-8"), dict(response.headers.items())
+
     def test_session_lifecycle_and_ingestion(self) -> None:
         status, created = self.request(
             "POST",
@@ -128,6 +136,16 @@ class BackendApiTests(unittest.TestCase):
         self.assertEqual(session_intervals["interval_count"], 1)
         self.assertEqual(session_intervals["intervals"][0]["event_id"], "evt_001")
 
+        status, csv_text, headers = self.request_text("GET", f"/sessions/{session_id}/intervals.csv")
+        self.assertEqual(status, 200)
+        self.assertIn("text/csv", headers["Content-Type"])
+        self.assertIn("event_id,batch_id,session_id", csv_text)
+        self.assertIn("evt_001,batch_001", csv_text)
+
+        status, csv_text_query, _ = self.request_text("GET", f"/sessions/{session_id}/intervals?format=csv")
+        self.assertEqual(status, 200)
+        self.assertEqual(csv_text_query, csv_text)
+
         status, session_summary = self.request("GET", f"/sessions/{session_id}/summary")
         self.assertEqual(status, 200)
         self.assertEqual(session_summary["summary"]["interval_count"], 1)
@@ -159,6 +177,18 @@ class BackendApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(len(listed_courses["courses"]), 1)
         self.assertEqual(listed_courses["courses"][0]["canvas_instance_domain"], "psu.instructure.com")
+
+        status, cleared_courses = self.request(
+            "POST",
+            "/integrations/canvas/courses/clear",
+            {"user_id": "ryan"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(cleared_courses["deleted_count"], 1)
+
+        status, listed_after_clear = self.request("GET", "/integrations/canvas/courses?user_id=ryan")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(listed_after_clear["courses"]), 0)
 
         status, stopped = self.request("POST", f"/sessions/{session_id}/stop")
         self.assertEqual(status, 200)
