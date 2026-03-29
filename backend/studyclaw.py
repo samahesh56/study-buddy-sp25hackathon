@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
+from ctypes import POINTER, byref, c_int, windll
+from ctypes.wintypes import LPCWSTR
 from typing import Any
 
 from backend.final_dataset import FinalDatasetService
@@ -110,7 +113,10 @@ def generate_studyclaw_chat_response(context: dict[str, Any] | None, message: st
 
 def _generate_openclaw_chat_response(context: dict[str, Any] | None, message: str) -> dict[str, Any]:
     command = os.environ.get("STUDYCLAW_OPENCLAW_COMMAND", "openclaw")
-    if not shutil.which(command):
+    command_parts = _split_command(command)
+    resolved_command = shutil.which(command_parts[0]) if command_parts else None
+    executable = resolved_command or (command_parts[0] if command_parts else command)
+    if not command_parts or (not resolved_command and not os.path.exists(executable)):
         raise RuntimeError(f"OpenClaw command not found on PATH: {command}")
 
     agent_id = os.environ.get("STUDYCLAW_OPENCLAW_AGENT", "main")
@@ -120,7 +126,8 @@ def _generate_openclaw_chat_response(context: dict[str, Any] | None, message: st
 
     result = subprocess.run(
         [
-            command,
+            executable,
+            *command_parts[1:],
             "agent",
             "--local",
             "--agent",
@@ -200,15 +207,7 @@ def _build_openclaw_prompt(context: dict[str, Any] | None, message: str) -> str:
 
 
 def _extract_json_payload(output: str) -> dict[str, Any]:
-    lines = [line for line in output.splitlines() if line.strip()]
-    candidates = []
-    for index, line in enumerate(lines):
-        if line.lstrip().startswith("{"):
-            candidates.append("\n".join(lines[index:]))
-
-    if output.lstrip().startswith("{"):
-        candidates.insert(0, output.strip())
-
+    candidates = _find_json_object_candidates(output)
     for candidate in candidates:
         try:
             return json.loads(candidate)
@@ -223,6 +222,44 @@ def _extract_openclaw_text(payload: dict[str, Any]) -> str:
     if not texts:
         raise RuntimeError("OpenClaw returned no text payload.")
     return "\n\n".join(texts)
+
+
+def _split_command(command: str) -> list[str]:
+    try:
+        if os.name == "nt":
+            return _split_windows_command(command)
+        return shlex.split(command, posix=True)
+    except ValueError as error:
+        raise RuntimeError(f"Invalid OpenClaw command configuration: {error}") from error
+
+
+def _split_windows_command(command: str) -> list[str]:
+    argc = c_int()
+    argv = windll.shell32.CommandLineToArgvW(LPCWSTR(command), byref(argc))
+    if not argv:
+        raise ValueError("could not parse Windows command line")
+    try:
+        return [argv[index] for index in range(argc.value)]
+    finally:
+        windll.kernel32.LocalFree(argv)
+
+
+def _find_json_object_candidates(output: str) -> list[str]:
+    decoder = json.JSONDecoder()
+    candidates: list[str] = []
+    index = 0
+    while index < len(output):
+        if output[index] != "{":
+            index += 1
+            continue
+        try:
+            _parsed, end = decoder.raw_decode(output[index:])
+        except json.JSONDecodeError:
+            index += 1
+            continue
+        candidates.append(output[index : index + end])
+        index += end
+    return candidates
 
 
 def _build_recurring_patterns(summaries: list[dict[str, Any]]) -> list[str]:
