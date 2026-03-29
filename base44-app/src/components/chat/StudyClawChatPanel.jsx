@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Send, Zap } from "lucide-react";
+import { Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ChatAPI, SessionAPI } from "@/lib/api";
 import { cleanCourseTitle } from "@/lib/course-title";
 import ChatBubble from "@/components/chat/ChatBubble";
+import justClawLogo from "@/assets/just-claw.png";
 
 const INITIAL_MESSAGE = {
     role: "assistant",
@@ -82,8 +83,8 @@ export default function StudyClawChatPanel({
         <div className={`flex flex-col bg-card border border-border rounded-xl overflow-hidden ${className}`.trim()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-primary/[0.02]">
                 <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center">
-                        <Zap className="w-4.5 h-4.5 text-primary-foreground" />
+                    <div className="w-10 h-10 rounded-xl bg-primary/10 ring-1 ring-border flex items-center justify-center overflow-hidden">
+                        <img src={justClawLogo} alt="StudyClaw" className="w-8 h-8 object-contain" />
                     </div>
                     <div>
                         <h2 className="text-sm font-semibold text-foreground">{title}</h2>
@@ -116,8 +117,8 @@ export default function StudyClawChatPanel({
 
                 {sending && (
                     <div className="flex gap-3">
-                        <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center shrink-0">
-                            <Zap className="w-3.5 h-3.5 text-primary-foreground" />
+                        <div className="w-8 h-8 rounded-lg bg-primary/10 ring-1 ring-border flex items-center justify-center shrink-0 overflow-hidden">
+                            <img src={justClawLogo} alt="StudyClaw" className="w-6 h-6 object-contain" />
                         </div>
                         <div className="bg-card border border-border rounded-2xl rounded-bl-md px-4 py-3">
                             <div className="flex gap-1.5">

@@ -1,6 +1,7 @@
 import { Outlet, Link, useLocation } from "react-router-dom";
-import { LayoutDashboard, Play, Clock, History, MessageCircle, Zap } from "lucide-react";
+import { LayoutDashboard, Play, Clock, History, MessageCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import justClawLogo from "@/assets/just-claw.png";
 
 const navItems = [
     { path: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -18,8 +19,8 @@ export default function Layout() {
             {/* Sidebar */}
             <aside className="hidden md:flex flex-col w-64 bg-sidebar border-r border-sidebar-border">
                 <div className="flex items-center gap-2.5 px-6 py-5 border-b border-sidebar-border">
-                    <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-sidebar-primary">
-                        <Zap className="w-4 h-4 text-sidebar-primary-foreground" />
+                    <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-sidebar-primary/10 ring-1 ring-sidebar-border overflow-hidden">
+                        <img src={justClawLogo} alt="StudyClaw" className="w-7 h-7 object-contain" />
                     </div>
                     <span className="text-lg font-semibold text-sidebar-foreground tracking-tight">StudyClaw</span>
                 </div>
@@ -60,8 +61,8 @@ export default function Layout() {
             <div className="md:hidden fixed top-0 left-0 right-0 z-50 bg-sidebar border-b border-sidebar-border">
                 <div className="flex items-center justify-between px-4 py-3">
                     <div className="flex items-center gap-2">
-                        <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-sidebar-primary">
-                            <Zap className="w-3.5 h-3.5 text-sidebar-primary-foreground" />
+                        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-sidebar-primary/10 ring-1 ring-sidebar-border overflow-hidden">
+                            <img src={justClawLogo} alt="StudyClaw" className="w-6 h-6 object-contain" />
                         </div>
                         <span className="text-base font-semibold text-sidebar-foreground">StudyClaw</span>
                     </div>

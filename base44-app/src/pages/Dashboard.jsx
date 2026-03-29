@@ -4,6 +4,7 @@ import { Play, Target, Clock, Flame, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SessionAPI } from "@/lib/api";
 import { cleanCourseTitle } from "@/lib/course-title";
+import studyClawLogo from "@/assets/studyclaw-logo.png";
 import MetricCard from "@/components/dashboard/MetricCard";
 import RecentSessionRow from "@/components/dashboard/RecentSessionRow";
 import InsightCard from "@/components/dashboard/InsightCard";
@@ -44,6 +45,11 @@ export default function Dashboard() {
                     <div className="absolute inset-0 bg-gradient-to-br from-transparent via-transparent to-black/10" />
                     <div className="relative flex flex-col md:flex-row md:items-center md:justify-between gap-6">
                         <div>
+                            <img
+                                src={studyClawLogo}
+                                alt="StudyClaw"
+                                className="h-16 md:h-20 w-auto object-contain mb-4 drop-shadow-[0_10px_24px_rgba(0,0,0,0.18)]"
+                            />
                             <h1 className="text-2xl md:text-3xl font-semibold text-primary-foreground tracking-tight mb-2">
                                 Ready to study?
                             </h1>

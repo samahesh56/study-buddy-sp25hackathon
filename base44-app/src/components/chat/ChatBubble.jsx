@@ -1,5 +1,5 @@
-import { Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
+import justClawLogo from "@/assets/just-claw.png";
 
 export default function ChatBubble({ message }) {
     const isAssistant = message.role === "assistant";
@@ -7,8 +7,8 @@ export default function ChatBubble({ message }) {
     return (
         <div className={cn("flex gap-3", isAssistant ? "justify-start" : "justify-end")}>
             {isAssistant && (
-                <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center shrink-0 mt-1">
-                    <Zap className="w-3.5 h-3.5 text-primary-foreground" />
+                <div className="w-8 h-8 rounded-lg bg-primary/10 ring-1 ring-border flex items-center justify-center shrink-0 mt-1 overflow-hidden">
+                    <img src={justClawLogo} alt="StudyClaw" className="w-6 h-6 object-contain" />
                 </div>
             )}
 

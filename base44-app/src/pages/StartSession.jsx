@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { CanvasAPI, SessionAPI } from "@/lib/api";
 import { cleanCourseTitle } from "@/lib/course-title";
 import { callExtension } from "@/lib/extension-bridge";
+import justClawLogo from "@/assets/just-claw.png";
 import DurationPicker from "@/components/session/DurationPicker";
 
 export default function StartSession() {
@@ -91,7 +92,12 @@ export default function StartSession() {
 
     return (
         <div className="px-6 md:px-10 py-8 max-w-2xl mx-auto">
-            <div className="mb-8">
+            <div className="mb-8 text-center">
+                <img
+                    src={justClawLogo}
+                    alt="StudyClaw"
+                    className="h-20 md:h-24 w-auto object-contain mx-auto mb-4"
+                />
                 <h1 className="text-2xl font-semibold text-foreground tracking-tight mb-1">Start a Session</h1>
                 <p className="text-sm text-muted-foreground">Choose a Canvas course, set your study time, and start the session.</p>
             </div>

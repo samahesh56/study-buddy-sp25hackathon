@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlparse
 from backend.cv_manager import ComputerVisionManager
 from backend.final_dataset import FinalDatasetService
 from backend.storage import Storage
-from backend.studyclaw import build_studyclaw_context, generate_placeholder_chat_response
+from backend.studyclaw import build_studyclaw_context, generate_studyclaw_chat_response
 
 
 ROOT = Path(__file__).resolve().parent
@@ -278,7 +278,7 @@ class StudyClawHandler(BaseHTTPRequestHandler):
                 return
 
             if len(path_parts) == 3 and path_parts[2] == "studyclaw-context":
-                context = build_studyclaw_context(self.storage, session_id)
+                context = build_studyclaw_context(self.storage, self.final_dataset, session_id)
                 json_response(self, HTTPStatus.OK, {"context": context})
                 return
 
@@ -431,8 +431,8 @@ class StudyClawHandler(BaseHTTPRequestHandler):
                 else:
                     session_id = session_context
 
-            context = build_studyclaw_context(self.storage, session_id) if session_id else None
-            response = generate_placeholder_chat_response(context, message)
+            context = build_studyclaw_context(self.storage, self.final_dataset, session_id) if session_id else None
+            response = generate_studyclaw_chat_response(context, message)
             response["timestamp"] = utc_now_iso()
             json_response(
                 self,
@@ -440,7 +440,7 @@ class StudyClawHandler(BaseHTTPRequestHandler):
                 {
                     "response": response,
                     "agent_ready": True,
-                    "agent_mode": "placeholder",
+                    "agent_mode": response.get("context", {}).get("agent_mode", "unknown"),
                     "context": context,
                 },
             )

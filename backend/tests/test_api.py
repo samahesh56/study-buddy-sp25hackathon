@@ -1,5 +1,6 @@
 import json
 import csv
+import os
 import threading
 import time
 import unittest
@@ -15,6 +16,8 @@ from backend.storage import Storage
 class BackendApiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        cls.previous_chat_mode = os.environ.get("STUDYCLAW_CHAT_MODE")
+        os.environ["STUDYCLAW_CHAT_MODE"] = "placeholder"
         cls.test_dir = Path(__file__).resolve().parent / ".tmp"
         cls.test_dir.mkdir(parents=True, exist_ok=True)
         db_path = str(cls.test_dir / "test.sqlite3")
@@ -33,6 +36,10 @@ class BackendApiTests(unittest.TestCase):
         cls.server.shutdown()
         cls.server.server_close()
         cls.thread.join(timeout=2)
+        if cls.previous_chat_mode is None:
+            os.environ.pop("STUDYCLAW_CHAT_MODE", None)
+        else:
+            os.environ["STUDYCLAW_CHAT_MODE"] = cls.previous_chat_mode
 
     @classmethod
     def _write_camera_fixture(cls, camera_data_dir: Path) -> None:
