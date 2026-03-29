@@ -93,6 +93,10 @@ class StudyClawHandler(BaseHTTPRequestHandler):
             json_response(self, HTTPStatus.OK, {"active_session": self.storage.get_active_session()})
             return
 
+        if parsed.path == "/sessions/list":
+            json_response(self, HTTPStatus.OK, {"sessions": self.storage.list_sessions()})
+            return
+
         if parsed.path == "/debug/state":
             json_response(self, HTTPStatus.OK, self.storage.debug_state())
             return
@@ -101,7 +105,7 @@ class StudyClawHandler(BaseHTTPRequestHandler):
             query = parse_qs(parsed.query)
             session_id = query.get("session_id", [None])[0]
             if not session_id:
-                json_response(self, HTTPStatus.BAD_REQUEST, {"error": "session_id query parameter is required"})
+                json_response(self, HTTPStatus.OK, {"sessions": self.storage.list_sessions()})
                 return
             session = self.storage.get_session(session_id)
             if not session:
@@ -152,6 +156,9 @@ class StudyClawHandler(BaseHTTPRequestHandler):
             session = self.storage.create_session(
                 session_id=new_session_id(),
                 user_id=body.get("user_id"),
+                course=body.get("course"),
+                assignment=body.get("assignment"),
+                planned_duration_minutes=body.get("planned_duration_minutes"),
                 created_at=utc_now_iso(),
             )
             json_response(self, HTTPStatus.CREATED, {"session": session})

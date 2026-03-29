@@ -27,6 +27,9 @@ class Storage:
                 CREATE TABLE IF NOT EXISTS sessions (
                     session_id TEXT PRIMARY KEY,
                     user_id TEXT,
+                    course TEXT,
+                    assignment TEXT,
+                    planned_duration_minutes INTEGER,
                     status TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     started_at TEXT NOT NULL,
@@ -90,16 +93,37 @@ class Storage:
                 ON browser_intervals_raw (server_received_at DESC);
                 """
             )
+            existing_columns = {
+                row["name"] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()
+            }
+            if "course" not in existing_columns:
+                conn.execute("ALTER TABLE sessions ADD COLUMN course TEXT")
+            if "assignment" not in existing_columns:
+                conn.execute("ALTER TABLE sessions ADD COLUMN assignment TEXT")
+            if "planned_duration_minutes" not in existing_columns:
+                conn.execute("ALTER TABLE sessions ADD COLUMN planned_duration_minutes INTEGER")
+            conn.commit()
 
-    def create_session(self, session_id: str, user_id: str | None, created_at: str) -> dict[str, Any]:
+    def create_session(
+        self,
+        session_id: str,
+        user_id: str | None,
+        course: str | None,
+        assignment: str | None,
+        planned_duration_minutes: int | None,
+        created_at: str,
+    ) -> dict[str, Any]:
         with self._lock, self._connect() as conn:
             conn.execute("UPDATE sessions SET status = 'stopped', stopped_at = ? WHERE status = 'active'", (created_at,))
             conn.execute(
                 """
-                INSERT INTO sessions (session_id, user_id, status, created_at, started_at, stopped_at)
-                VALUES (?, ?, 'active', ?, ?, NULL)
+                INSERT INTO sessions (
+                    session_id, user_id, course, assignment, planned_duration_minutes,
+                    status, created_at, started_at, stopped_at
+                )
+                VALUES (?, ?, ?, ?, ?, 'active', ?, ?, NULL)
                 """,
-                (session_id, user_id, created_at, created_at),
+                (session_id, user_id, course, assignment, planned_duration_minutes, created_at, created_at),
             )
             conn.commit()
         return self.get_session(session_id)
@@ -115,6 +139,20 @@ class Storage:
                 "SELECT * FROM sessions WHERE status = 'active' ORDER BY started_at DESC LIMIT 1"
             ).fetchone()
         return dict(row) if row else None
+
+    def list_sessions(self) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT s.*,
+                       COALESCE(ROUND(SUM(b.duration_ms) / 60000.0), 0) AS actual_duration_minutes
+                FROM sessions s
+                LEFT JOIN browser_intervals_raw b ON b.session_id = s.session_id
+                GROUP BY s.session_id
+                ORDER BY s.started_at DESC
+                """
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def stop_session(self, session_id: str, stopped_at: str) -> dict[str, Any] | None:
         with self._lock, self._connect() as conn:

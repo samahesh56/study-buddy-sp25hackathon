@@ -1,0 +1,9 @@
+{
+  "name": "StudyClaw",
+  "short_name": "StudyClaw",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f7fb",
+  "theme_color": "#1f2a44",
+  "icons": []
+}

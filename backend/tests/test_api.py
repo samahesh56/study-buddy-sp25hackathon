@@ -43,13 +43,27 @@ class BackendApiTests(unittest.TestCase):
             return exc.code, json.loads(exc.read().decode("utf-8"))
 
     def test_session_lifecycle_and_ingestion(self) -> None:
-        status, created = self.request("POST", "/sessions", {"user_id": "ryan"})
+        status, created = self.request(
+            "POST",
+            "/sessions",
+            {
+                "user_id": "ryan",
+                "course": "CMPSC 132",
+                "assignment": "Linked List Homework",
+                "planned_duration_minutes": 45,
+            },
+        )
         self.assertEqual(status, 201)
         session_id = created["session"]["session_id"]
+        self.assertEqual(created["session"]["course"], "CMPSC 132")
 
         status, active = self.request("GET", "/sessions/active")
         self.assertEqual(status, 200)
         self.assertEqual(active["active_session"]["session_id"], session_id)
+
+        status, listed = self.request("GET", "/sessions")
+        self.assertEqual(status, 200)
+        self.assertEqual(listed["sessions"][0]["session_id"], session_id)
 
         batch = {
             "batch_id": "batch_001",
