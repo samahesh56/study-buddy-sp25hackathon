@@ -5,9 +5,11 @@ import os
 import shlex
 import shutil
 import subprocess
-from ctypes import POINTER, byref, c_int, windll
-from ctypes.wintypes import LPCWSTR
 from typing import Any
+
+if os.name == "nt":
+    from ctypes import POINTER, byref, c_int, windll
+    from ctypes.wintypes import LPCWSTR, LPWSTR
 
 from backend.final_dataset import FinalDatasetService
 from backend.storage import Storage
@@ -235,6 +237,8 @@ def _split_command(command: str) -> list[str]:
 
 def _split_windows_command(command: str) -> list[str]:
     argc = c_int()
+    windll.shell32.CommandLineToArgvW.argtypes = [LPCWSTR, POINTER(c_int)]
+    windll.shell32.CommandLineToArgvW.restype = POINTER(LPWSTR)
     argv = windll.shell32.CommandLineToArgvW(LPCWSTR(command), byref(argc))
     if not argv:
         raise ValueError("could not parse Windows command line")
